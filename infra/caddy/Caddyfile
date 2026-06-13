@@ -1,0 +1,13 @@
+{
+	email {$CADDY_EMAIL}
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+
+	handle_path /socket.io/* {
+		reverse_proxy realtime:4001
+	}
+
+	reverse_proxy web:3000
+}

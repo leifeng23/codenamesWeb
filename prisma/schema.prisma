@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum Universe {
+  cosmere
+  cytonic
+  qq
+}
+
+enum WordCategory {
+  cosmere_characters
+  cosmere_culture
+  cosmere_lifeforms
+  cosmere_locations
+  cosmere_magic
+  cosmere_object_material
+  cytonic_characters
+  cytonic_spots
+  cytonic_concepts
+  qq_friends
+}
+
+enum Team {
+  red
+  blue
+  spectator
+}
+
+enum TurnTeam {
+  red
+  blue
+}
+
+enum Faction {
+  red
+  blue
+  neutral
+  assassin
+}
+
+enum RoomStatus {
+  lobby
+  playing
+  finished
+}
+
+enum GameStatus {
+  active
+  finished
+}
+
+enum GamePhase {
+  waiting_for_clue
+  guessing
+  finished
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  passwordHash String
+  role         UserRole     @default(USER)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  inviteCodes  InviteCode[] @relation("InviteCreator")
+  usedInvite   InviteCode?  @relation("InviteUser")
+  roomsOwned   Room[]       @relation("RoomOwner")
+  memberships  RoomMember[]
+  events       GameEvent[]
+}
+
+model InviteCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  createdById String
+  usedById    String?   @unique
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  usedAt      DateTime?
+  createdBy   User      @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  usedBy      User?     @relation("InviteUser", fields: [usedById], references: [id], onDelete: SetNull)
+}
+
+model WordEntry {
+  id           String       @id @default(cuid())
+  universe     Universe
+  category     WordCategory
+  textCn       String
+  textEnOrNote String
+  sourceSheet  String?
+  sourceRow    Int?
+  enabled      Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  cards        GameCard[]
+
+  @@index([category, enabled])
+  @@index([textCn])
+}
+
+model Room {
+  id            String       @id @default(cuid())
+  code          String       @unique
+  ownerId       String
+  status        RoomStatus   @default(lobby)
+  currentGameId String?      @unique
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  owner         User         @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  currentGame   Game?        @relation("CurrentRoomGame", fields: [currentGameId], references: [id], onDelete: SetNull)
+  members       RoomMember[]
+  games         Game[]       @relation("RoomGames")
+  wordCategories RoomWordCategory[]
+}
+
+model RoomWordCategory {
+  id        String       @id @default(cuid())
+  roomId    String
+  category  WordCategory
+  createdAt DateTime     @default(now())
+  room      Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, category])
+  @@index([category])
+}
+
+model RoomMember {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  team      Team     @default(spectator)
+  canSpy    Boolean  @default(false)
+  joinedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+}
+
+model Game {
+  id            String      @id @default(cuid())
+  roomId        String
+  seed          String
+  status        GameStatus  @default(active)
+  redRemaining  Int         @default(9)
+  blueRemaining Int         @default(8)
+  turnTeam      TurnTeam    @default(red)
+  phase         GamePhase   @default(waiting_for_clue)
+  currentClueWord      String?
+  currentClueCount     Int?
+  guessesMadeThisTurn  Int       @default(0)
+  maxGuessesThisTurn   Int?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  room          Room        @relation("RoomGames", fields: [roomId], references: [id], onDelete: Cascade)
+  currentFor    Room?       @relation("CurrentRoomGame")
+  cards         GameCard[]
+  events        GameEvent[]
+}
+
+model GameCard {
+  id          String    @id @default(cuid())
+  gameId      String
+  wordEntryId String
+  position    Int
+  faction     Faction
+  revealed    Boolean   @default(false)
+  revealedAt  DateTime?
+  revealedBy  String?
+  game        Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  wordEntry   WordEntry @relation(fields: [wordEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([gameId, position])
+}
+
+model GameEvent {
+  id        String   @id @default(cuid())
+  gameId    String?
+  roomId    String
+  userId    String?
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+  game      Game?    @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([roomId, createdAt])
+  @@index([gameId, createdAt])
+}
