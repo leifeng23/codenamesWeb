@@ -16,7 +16,7 @@ export default async function HomePage() {
       <Starfield />
       <div className="mx-auto flex max-w-6xl items-center justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.32em] text-storm/70">Cosmere CodeNames</p>
+          <p className="text-xs uppercase tracking-[0.32em] text-storm/70">Codenames Fan Edition</p>
           <h1 className="mt-2 text-4xl font-black">Codenames同人在线版</h1>
         </div>
         <div className="flex flex-wrap gap-2">
