@@ -44,23 +44,9 @@ export default async function WordsAdminPage() {
             </Link>
           ) : null}
         </div>
-        <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-brass">Admin Console</p>
-            <h1 className="mt-2 text-4xl font-black">题库后台</h1>
-          </div>
-          <div className="flex max-w-full gap-2 overflow-x-auto pb-1 text-xs lg:max-w-[58%]">
-            {categoryTree.flatMap((archive) =>
-              archive.categories.map((category) => (
-                <div key={category.id} className="min-w-[120px] rounded-md border border-white/10 bg-white/[0.04] p-2">
-                  <p className="truncate text-white/52">
-                    {archive.name} {category.name}
-                  </p>
-                  <p className="text-lg font-black">{category.count}</p>
-                </div>
-              ))
-            )}
-          </div>
+        <div className="mt-4">
+          <p className="text-xs uppercase tracking-[0.3em] text-brass">Admin Console</p>
+          <h1 className="mt-2 text-4xl font-black">题库后台</h1>
         </div>
         <WordsAdmin
           initialArchives={categoryTree}

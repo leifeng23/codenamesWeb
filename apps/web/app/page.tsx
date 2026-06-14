@@ -17,7 +17,7 @@ export default async function HomePage() {
       <div className="mx-auto flex max-w-6xl items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.32em] text-storm/70">Cosmere CodeNames</p>
-          <h1 className="mt-2 text-4xl font-black">星图密令行动台</h1>
+          <h1 className="mt-2 text-4xl font-black">Codenames同人在线版</h1>
         </div>
         <div className="flex flex-wrap gap-2">
           {user.role === "ADMIN" || user.role === "WORD_EDITOR" ? (
@@ -44,7 +44,6 @@ export default async function HomePage() {
         </section>
         <Panel className="self-start">
           <h2 className="text-xl font-bold">房间</h2>
-          <p className="mt-2 text-sm text-white/56">没有公开大厅，第一版专注朋友局。</p>
           <div className="mt-6">
             <HomeActions categoryTree={categoryTree} />
           </div>
