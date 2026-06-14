@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { canGuess, canSubmitClue, FACTION_COUNTS, generateCards, shouldEndTurnAfterReveal } from "../src/game";
+import {
+  canGuess,
+  canSubmitClue,
+  classifyReveal,
+  deriveWinner,
+  FACTION_COUNTS,
+  generateCards,
+  shouldEndTurnAfterReveal
+} from "../src/game";
 
 describe("generateCards", () => {
   it("creates a stable 25-card board with the expected faction counts", () => {
@@ -44,5 +52,31 @@ describe("strict turn helpers", () => {
     expect(shouldEndTurnAfterReveal({ revealedFaction: "blue", turnTeam: "red", guessesMade: 1, maxGuesses: 3 })).toBe(true);
     expect(shouldEndTurnAfterReveal({ revealedFaction: "neutral", turnTeam: "red", guessesMade: 1, maxGuesses: 3 })).toBe(true);
     expect(shouldEndTurnAfterReveal({ revealedFaction: "red", turnTeam: "red", guessesMade: 3, maxGuesses: 3 })).toBe(true);
+  });
+});
+
+describe("classifyReveal", () => {
+  it("labels each reveal outcome relative to the guessing team", () => {
+    expect(classifyReveal("red", "red")).toBe("correct");
+    expect(classifyReveal("blue", "red")).toBe("enemy");
+    expect(classifyReveal("neutral", "red")).toBe("neutral");
+    expect(classifyReveal("assassin", "red")).toBe("assassin");
+  });
+});
+
+describe("deriveWinner", () => {
+  it("returns null while the game is unfinished", () => {
+    expect(deriveWinner({ phase: "guessing", redRemaining: 3, blueRemaining: 2, turnTeam: "red" })).toBeNull();
+  });
+
+  it("awards the win to whichever team is cleared first", () => {
+    expect(deriveWinner({ phase: "finished", redRemaining: 0, blueRemaining: 2, turnTeam: "red" })).toBe("red");
+    expect(deriveWinner({ phase: "finished", redRemaining: 4, blueRemaining: 0, turnTeam: "red" })).toBe("blue");
+  });
+
+  it("makes the assassin-flipping team lose (opponent wins)", () => {
+    // 红队回合翻到刺客，双方都还有剩余 → 蓝队获胜
+    expect(deriveWinner({ phase: "finished", redRemaining: 3, blueRemaining: 4, turnTeam: "red" })).toBe("blue");
+    expect(deriveWinner({ phase: "finished", redRemaining: 3, blueRemaining: 4, turnTeam: "blue" })).toBe("red");
   });
 });

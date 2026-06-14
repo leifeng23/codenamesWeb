@@ -3,7 +3,9 @@ import {
   canGuess,
   canMemberSpy,
   canSubmitClue,
+  classifyReveal,
   countRemaining,
+  deriveWinner,
   generateCards,
   nextTurnTeam,
   shouldEndTurnAfterReveal,
@@ -116,11 +118,21 @@ export async function revealCard(gameId: string, cardId: string, userId: string)
       include: { game: { include: { room: { include: { members: true } } } } }
     });
     if (!card || card.gameId !== gameId) throw new Error("Card not found");
-    if (card.revealed) return card;
+    if (card.revealed) {
+      return {
+        card,
+        outcome: null,
+        guessTeam: card.game.turnTeam as TurnTeam,
+        turnEnded: false,
+        gameFinished: false,
+        winnerTeam: null as TurnTeam | null
+      };
+    }
     if (card.game.phase !== "guessing") throw new Error("当前回合还没有提交线索");
 
+    const guessTeam = card.game.turnTeam as TurnTeam;
     const member = card.game.room.members.find((item) => item.userId === userId);
-    if (!member || !canGuess(member, card.game.turnTeam as TurnTeam)) {
+    if (!member || !canGuess(member, guessTeam)) {
       throw new Error("只有当前队伍的普通队员可以翻牌");
     }
 
@@ -141,9 +153,18 @@ export async function revealCard(gameId: string, cardId: string, userId: string)
         maxGuesses: card.game.maxGuessesThisTurn
       });
 
-    const nextTeam = turnShouldEnd ? nextTurnTeam(card.game.turnTeam as TurnTeam) : card.game.turnTeam;
+    const nextTeam = turnShouldEnd ? nextTurnTeam(guessTeam) : guessTeam;
     const nextPhase = gameFinished ? "finished" : turnShouldEnd ? "waiting_for_clue" : "guessing";
     const gameStatus = gameFinished ? "finished" : "active";
+    const outcome = classifyReveal(updated.faction, guessTeam);
+    const winnerTeam = gameFinished
+      ? deriveWinner({
+          phase: "finished",
+          redRemaining: remaining.redRemaining,
+          blueRemaining: remaining.blueRemaining,
+          turnTeam: nextTeam
+        })
+      : null;
 
     await tx.game.update({
       where: { id: gameId },
@@ -195,11 +216,14 @@ export async function revealCard(gameId: string, cardId: string, userId: string)
           gameId,
           userId,
           type: "game.finished",
-          payload: { reason: updated.faction === "assassin" ? "assassin" : "all_cards_found" }
+          payload: {
+            reason: updated.faction === "assassin" ? "assassin" : "all_cards_found",
+            winnerTeam
+          }
         }
       });
     }
-    return updated;
+    return { card: updated, outcome, guessTeam, turnEnded: turnShouldEnd, gameFinished, winnerTeam };
   });
 }
 
@@ -276,6 +300,14 @@ export async function endTurn(gameId: string, userId: string) {
   });
 }
 
+/** 解散房间：删除房间及其所有成员、对局、卡牌、事件、题库选择（房主操作）。 */
+export async function disbandRoom(roomId: string) {
+  await prisma.$transaction([
+    prisma.gameEvent.deleteMany({ where: { roomId } }),
+    prisma.room.delete({ where: { id: roomId } })
+  ]);
+}
+
 export async function buildRoomSnapshot(roomCode: string, viewerUserId?: string) {
   const room = await prisma.room.findUnique({
     where: { code: roomCode },
@@ -318,6 +350,12 @@ export async function buildRoomSnapshot(roomCode: string, viewerUserId?: string)
           blueRemaining: room.currentGame.blueRemaining,
           turnTeam: room.currentGame.turnTeam,
           phase: room.currentGame.phase,
+          winnerTeam: deriveWinner({
+            phase: room.currentGame.phase,
+            redRemaining: room.currentGame.redRemaining,
+            blueRemaining: room.currentGame.blueRemaining,
+            turnTeam: room.currentGame.turnTeam as TurnTeam
+          }),
           currentClue:
             room.currentGame.currentClueWord && room.currentGame.currentClueCount != null
               ? { word: room.currentGame.currentClueWord, count: room.currentGame.currentClueCount }

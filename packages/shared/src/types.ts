@@ -70,6 +70,7 @@ export interface RoomSnapshot {
     blueRemaining: number;
     turnTeam: TurnTeam;
     phase: GamePhase;
+    winnerTeam: TurnTeam | null;
     currentClue: null | {
       word: string;
       count: number;
@@ -78,4 +79,15 @@ export interface RoomSnapshot {
     maxGuessesThisTurn: number | null;
     cards: PublicCard[];
   };
+}
+
+export type GuessOutcome = "correct" | "neutral" | "enemy" | "assassin";
+
+/** card:revealed 实时事件附带的额外字段（叠加在 RoomSnapshot 之上）。 */
+export interface CardRevealedExtra {
+  revealedCardId: string;
+  revealedFaction: Faction;
+  outcome: GuessOutcome;
+  guessTeam: TurnTeam;
+  winnerTeam: TurnTeam | null;
 }

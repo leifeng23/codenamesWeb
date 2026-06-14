@@ -94,6 +94,17 @@ export async function requireWordEditor() {
   return user;
 }
 
+/**
+ * 供 API 路由使用的角色校验，返回是否通过及对应用户，
+ * 不做 redirect（路由里直接返回 401/403）。
+ */
+export async function checkRole(roles: Array<"USER" | "WORD_EDITOR" | "ADMIN">) {
+  const user = await currentUser();
+  if (!user) return { ok: false as const, status: 401 as const, user: null };
+  if (!roles.includes(user.role)) return { ok: false as const, status: 403 as const, user };
+  return { ok: true as const, status: 200 as const, user };
+}
+
 export async function clearSession() {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);

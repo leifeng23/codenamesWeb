@@ -62,7 +62,11 @@ export default async function WordsAdminPage() {
             )}
           </div>
         </div>
-        <WordsAdmin initialArchives={categoryTree} initialWords={JSON.parse(JSON.stringify(words))} />
+        <WordsAdmin
+          initialArchives={categoryTree}
+          initialWords={JSON.parse(JSON.stringify(words))}
+          isTopAdmin={user.role === "ADMIN"}
+        />
       </div>
     </main>
   );

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireUser } from "../../../lib/auth";
 import { handleApiError, makeRoomCode, ok } from "../../../lib/api";
+import { cleanupStaleRooms } from "../../../lib/game-state";
 import { prisma } from "../../../lib/prisma";
 
 const createSchema = z.object({
@@ -11,6 +12,8 @@ const createSchema = z.object({
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
+    // 惰性清理长期不活跃的房间，避免房间永久堆积
+    await cleanupStaleRooms().catch(() => undefined);
     const input = createSchema.parse(await request.json().catch(() => ({})));
     const existingCount = await prisma.wordCategory.count({
       where: { id: { in: input.categoryIds } }

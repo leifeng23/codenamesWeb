@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 import { z } from "zod";
 import { readUserIdFromCookie } from "./auth";
-import { buildRoomSnapshot, createGameForRoom, endTurn, revealCard, submitClue } from "./game-state";
+import { buildRoomSnapshot, createGameForRoom, disbandRoom, endTurn, revealCard, submitClue } from "./game-state";
 import { prisma } from "./prisma";
 
 const port = Number(process.env.REALTIME_PORT ?? 4001);
@@ -151,12 +151,27 @@ io.on("connection", (socket) => {
       if (!userId) throw new Error("Unauthenticated");
       const room = await prisma.room.findUnique({ where: { code: input.roomCode }, include: { members: true } });
       if (!room) throw new Error("Room not found");
-      const member = room.members.find((item) => item.userId === userId);
-      if (!member || (room.ownerId !== userId && !member.canSpy)) throw new Error("No permission to start");
+      if (room.ownerId !== userId) throw new Error("只有房主可以开始或重开游戏");
       await createGameForRoom(room.id, userId);
       await emitSnapshot(input.roomCode, "game:started");
     } catch (error) {
       socket.emit("error", { message: error instanceof Error ? error.message : "Start failed" });
+    }
+  });
+
+  socket.on("room:disband", async (payload) => {
+    try {
+      const input = joinSchema.parse(payload);
+      const userId = socket.data.userId as string | undefined;
+      if (!userId) throw new Error("Unauthenticated");
+      const room = await prisma.room.findUnique({ where: { code: input.roomCode } });
+      if (!room) throw new Error("Room not found");
+      if (room.ownerId !== userId) throw new Error("只有房主可以解散房间");
+      // 先广播再删除，确保房内成员都能收到通知并离开
+      io.in(input.roomCode).emit("room:disbanded", { roomCode: input.roomCode });
+      await disbandRoom(room.id);
+    } catch (error) {
+      socket.emit("error", { message: error instanceof Error ? error.message : "Disband failed" });
     }
   });
 
@@ -167,11 +182,21 @@ io.on("connection", (socket) => {
       if (!userId) throw new Error("Unauthenticated");
       const room = await prisma.room.findUnique({ where: { code: input.roomCode }, include: { members: true } });
       if (!room?.members.some((member) => member.userId === userId)) throw new Error("Not a room member");
-      const card = await revealCard(input.gameId, input.cardId, userId);
-      await emitSnapshot(input.roomCode, "card:revealed", { revealedFaction: card.faction });
-      const game = await prisma.game.findUnique({ where: { id: input.gameId } });
-      if (game?.status === "finished") {
-        await emitSnapshot(input.roomCode, "game:ended");
+      const result = await revealCard(input.gameId, input.cardId, userId);
+      if (!result.outcome) {
+        // 卡牌已被翻开（并发重复点击）：只同步状态，不重复触发特效
+        await emitSnapshot(input.roomCode);
+        return;
+      }
+      await emitSnapshot(input.roomCode, "card:revealed", {
+        revealedCardId: result.card.id,
+        revealedFaction: result.card.faction,
+        outcome: result.outcome,
+        guessTeam: result.guessTeam,
+        winnerTeam: result.winnerTeam
+      });
+      if (result.gameFinished) {
+        await emitSnapshot(input.roomCode, "game:ended", { winnerTeam: result.winnerTeam });
       }
     } catch (error) {
       socket.emit("error", { message: error instanceof Error ? error.message : "Reveal failed" });

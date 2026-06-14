@@ -4,21 +4,28 @@
 
 :root {
   color-scheme: dark;
-  background: #070812;
+  background: #04050d;
 }
 
 * {
   box-sizing: border-box;
 }
 
-html,
+/* 仅在 html（根画布）上铺底色与氛围渐变；body 保持透明，
+   这样 z-index:-10 的星空层不会被 body 的不透明背景盖住。 */
+html {
+  min-height: 100%;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(91, 120, 255, 0.16), transparent 30rem),
+    radial-gradient(circle at 84% 8%, rgba(168, 85, 247, 0.12), transparent 26rem),
+    radial-gradient(circle at 50% 100%, rgba(45, 212, 191, 0.1), transparent 34rem),
+    #04050d;
+}
+
 body {
   min-height: 100%;
   margin: 0;
-  background:
-    radial-gradient(circle at 20% 20%, rgba(91, 215, 255, 0.16), transparent 28rem),
-    radial-gradient(circle at 82% 10%, rgba(255, 93, 77, 0.12), transparent 24rem),
-    #070812;
+  background: transparent;
   color: #f7f1df;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -31,15 +38,312 @@ select {
   font: inherit;
 }
 
+/* ===== 夜空背景层（配合 Starfield 组件） ===== */
+.nebula-layer {
+  background:
+    radial-gradient(ellipse 60% 50% at 25% 20%, rgba(99, 102, 241, 0.22), transparent 70%),
+    radial-gradient(ellipse 50% 45% at 80% 25%, rgba(168, 85, 247, 0.18), transparent 70%),
+    radial-gradient(ellipse 70% 55% at 55% 95%, rgba(34, 211, 238, 0.14), transparent 70%);
+  filter: blur(8px);
+  animation: nebula-drift 38s ease-in-out infinite alternate;
+}
+
+.vignette-layer {
+  background: radial-gradient(ellipse at center, transparent 70%, rgba(2, 3, 10, 0.5) 100%);
+}
+
+@keyframes nebula-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate3d(-2.5%, 1.5%, 0) scale(1.08);
+    opacity: 0.72;
+  }
+}
+
 .scanlines::after {
   pointer-events: none;
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+  background: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 100% 4px;
   opacity: 0.14;
   mix-blend-mode: screen;
+}
+
+/* ===== 卡牌质感 ===== */
+.card-tile {
+  transform-style: preserve-3d;
+  perspective: 900px;
+}
+
+.card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* 未翻开卡牌的呼吸微光 */
+.card-idle {
+  animation: card-breathe 4.5s ease-in-out infinite;
+}
+
+@keyframes card-breathe {
+  0%,
+  100% {
+    box-shadow: inset 0 0 18px rgba(120, 170, 255, 0.05), 0 0 0 rgba(120, 170, 255, 0);
+  }
+  50% {
+    box-shadow: inset 0 0 22px rgba(120, 170, 255, 0.12), 0 0 14px rgba(120, 170, 255, 0.08);
+  }
+}
+
+/* ===== 翻牌结果特效 ===== */
+@keyframes ring-burst {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.fx-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.75rem;
+  border: 2px solid currentColor;
+  pointer-events: none;
+  animation: ring-burst 0.7s ease-out forwards;
+}
+
+/* 固定层版本：以卡牌中心为原点，不会被滚动容器裁剪或被右侧 UI 遮挡 */
+.fx-ring-fixed {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 120px;
+  height: 120px;
+  margin-left: -60px;
+  margin-top: -60px;
+  border-radius: 16px;
+  border: 2px solid currentColor;
+  pointer-events: none;
+  animation: ring-burst 0.7s ease-out forwards;
+}
+
+@keyframes spark-fly {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) scale(0.2);
+    opacity: 0;
+  }
+}
+
+.fx-spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+  pointer-events: none;
+  animation: spark-fly 0.7s ease-out forwards;
+}
+
+@keyframes correct-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.fx-correct {
+  animation: correct-pop 0.5s ease-out;
+}
+
+@keyframes neutral-dim {
+  0% {
+    filter: brightness(1.4) saturate(0.4);
+  }
+  100% {
+    filter: brightness(1) saturate(1);
+  }
+}
+.fx-neutral {
+  animation: neutral-dim 0.7s ease-out;
+}
+
+@keyframes enemy-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-5px);
+  }
+  40% {
+    transform: translateX(5px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+.fx-enemy {
+  animation: enemy-shake 0.45s ease-in-out;
+}
+
+/* 屏幕边缘闪光（猜错对方色 / 提示） */
+@keyframes edge-flash {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.edge-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  animation: edge-flash 0.9s ease-out forwards;
+}
+
+/* 刺客：全屏震动 + 冲击波 */
+@keyframes screen-shake {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  10% {
+    transform: translate(-8px, 6px);
+  }
+  20% {
+    transform: translate(7px, -7px);
+  }
+  30% {
+    transform: translate(-9px, -4px);
+  }
+  40% {
+    transform: translate(8px, 7px);
+  }
+  50% {
+    transform: translate(-6px, 5px);
+  }
+  60% {
+    transform: translate(6px, -6px);
+  }
+  70% {
+    transform: translate(-4px, 4px);
+  }
+  80% {
+    transform: translate(4px, -3px);
+  }
+  90% {
+    transform: translate(-2px, 2px);
+  }
+}
+.screen-shake {
+  animation: screen-shake 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+@keyframes shockwave {
+  0% {
+    transform: scale(0.2);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+.fx-shockwave {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 40vmax;
+  height: 40vmax;
+  margin-left: -20vmax;
+  margin-top: -20vmax;
+  border-radius: 9999px;
+  border: 4px solid rgba(255, 60, 60, 0.8);
+  box-shadow: 0 0 80px 20px rgba(255, 40, 40, 0.5);
+  pointer-events: none;
+  z-index: 45;
+  animation: shockwave 0.7s ease-out forwards;
+}
+
+@keyframes assassin-overlay {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.assassin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 44;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(120, 0, 0, 0.35) 0%, rgba(10, 0, 0, 0.85) 100%);
+  animation: assassin-overlay 0.9s ease-out forwards;
+}
+
+/* 胜利结算彩带 */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-12vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0.9;
+  }
+}
+.confetti-piece {
+  position: absolute;
+  top: 0;
+  width: 9px;
+  height: 14px;
+  border-radius: 2px;
+  animation: confetti-fall linear forwards;
+}
+
+@keyframes result-pop-in {
+  0% {
+    transform: scale(0.85) translateY(10px);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+.result-pop {
+  animation: result-pop-in 0.45s cubic-bezier(0.18, 0.89, 0.32, 1.28);
 }
 
 @media (prefers-reduced-motion: reduce) {

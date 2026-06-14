@@ -1,4 +1,4 @@
-import type { Faction, GeneratedCard, Team, TurnTeam } from "./types";
+import type { Faction, GamePhase, GeneratedCard, GuessOutcome, Team, TurnTeam } from "./types";
 
 export const BOARD_SIZE = 25;
 
@@ -104,4 +104,32 @@ export function shouldEndTurnAfterReveal({
   if (revealedFaction === "neutral") return true;
   if (revealedFaction !== turnTeam) return true;
   return maxGuesses != null && guessesMade >= maxGuesses;
+}
+
+/**
+ * 把一次翻牌结果分类，供前端做差异化特效/音效。
+ * correct=翻到本队色；neutral=中立；enemy=翻到对方色；assassin=刺客(炸弹)。
+ */
+export function classifyReveal(revealedFaction: Faction, guessTeam: TurnTeam): GuessOutcome {
+  if (revealedFaction === "assassin") return "assassin";
+  if (revealedFaction === "neutral") return "neutral";
+  return revealedFaction === guessTeam ? "correct" : "enemy";
+}
+
+/**
+ * 由对局当前状态推导胜方，无需在数据库中额外存字段。
+ * - 某队剩余为 0 → 该队获胜（含被对方翻光的情形）。
+ * - 其余 finished（即踩到刺客）→ 翻牌方(当前回合队)判负，另一队获胜。
+ * - 未结束返回 null。
+ */
+export function deriveWinner(state: {
+  phase: GamePhase;
+  redRemaining: number;
+  blueRemaining: number;
+  turnTeam: TurnTeam;
+}): TurnTeam | null {
+  if (state.phase !== "finished") return null;
+  if (state.redRemaining <= 0) return "red";
+  if (state.blueRemaining <= 0) return "blue";
+  return nextTurnTeam(state.turnTeam);
 }
