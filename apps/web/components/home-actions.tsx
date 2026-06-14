@@ -1,15 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { ALL_WORD_CATEGORIES, type WordCategory } from "@cosmere/shared";
-import { DoorOpen, Plus } from "lucide-react";
+import type { WordCategory } from "@cosmere/shared";
+import { DoorOpen, Plus, X } from "lucide-react";
 import { CategoryTree } from "./category-tree";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
-export function HomeActions() {
+export function HomeActions({
+  categoryCounts
+}: {
+  categoryCounts: Partial<Record<WordCategory, number>>;
+}) {
   const [joinCode, setJoinCode] = useState("");
-  const [categories, setCategories] = useState<WordCategory[]>([...ALL_WORD_CATEGORIES]);
+  const [categories, setCategories] = useState<WordCategory[]>([]);
+  const [joinOpen, setJoinOpen] = useState(false);
   const [error, setError] = useState("");
 
   async function createRoom() {
@@ -42,18 +47,44 @@ export function HomeActions() {
 
   return (
     <div className="space-y-4">
-      <CategoryTree selected={categories} onChange={setCategories} />
-      <Button onClick={createRoom} className="w-full bg-storm/18">
+      <CategoryTree selected={categories} onChange={setCategories} counts={categoryCounts} />
+      <div className="grid gap-3 sm:grid-cols-2">
+      <Button onClick={createRoom} className="w-full bg-storm/18" disabled={categories.length === 0}>
         <Plus size={18} />
-        创建邀请码房间
+        创建房间
       </Button>
-      <div className="flex gap-2">
-        <Input value={joinCode} onChange={(event) => setJoinCode(event.target.value)} placeholder="输入 6 位房间码" />
-        <Button onClick={joinRoom} disabled={!joinCode.trim()}>
+        <Button onClick={() => setJoinOpen(true)} className="w-full">
           <DoorOpen size={18} />
+          加入房间
         </Button>
       </div>
       {error ? <p className="text-sm text-ember">{error}</p> : null}
+      {joinOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-lg border border-white/15 bg-panel p-5 shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-black">加入房间</h3>
+              <button className="rounded p-2 hover:bg-white/10" onClick={() => setJoinOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-white/55">输入房主分享的 6 位房间码。</p>
+            <Input
+              className="mt-5 uppercase"
+              value={joinCode}
+              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+              placeholder="输入 6 位房间码"
+              autoFocus
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <Button onClick={() => setJoinOpen(false)}>取消</Button>
+              <Button onClick={joinRoom} disabled={!joinCode.trim()} className="bg-storm/18">
+                确认进入
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

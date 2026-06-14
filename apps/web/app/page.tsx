@@ -4,10 +4,19 @@ import { HomeActions } from "../components/home-actions";
 import { Starfield } from "../components/starfield";
 import { Panel } from "../components/ui/panel";
 import { currentUser } from "../lib/auth";
+import { prisma } from "../lib/prisma";
 
 export default async function HomePage() {
   const user = await currentUser();
   if (!user) redirect("/login");
+  const categoryCountsRaw = await prisma.wordEntry.groupBy({
+    by: ["category"],
+    where: { enabled: true },
+    _count: { _all: true }
+  });
+  const categoryCounts = Object.fromEntries(
+    categoryCountsRaw.map((item) => [item.category, item._count._all])
+  );
 
   return (
     <main className="min-h-screen px-4 py-8">
@@ -37,7 +46,7 @@ export default async function HomePage() {
           <h2 className="text-xl font-bold">房间</h2>
           <p className="mt-2 text-sm text-white/56">没有公开大厅，第一版专注朋友局。</p>
           <div className="mt-6">
-            <HomeActions />
+            <HomeActions categoryCounts={categoryCounts} />
           </div>
         </Panel>
       </div>
