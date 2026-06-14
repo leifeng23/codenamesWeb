@@ -1,6 +1,5 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { randomBytes } from "node:crypto";
 import { defaultUnityExcelPath, loadWordEntriesFromExcel } from "./word-importer";
 
 const prisma = new PrismaClient();
@@ -14,6 +13,7 @@ async function main() {
     where: { email: adminEmail },
     create: {
       email: adminEmail,
+      username: "admin",
       passwordHash,
       role: "ADMIN"
     },
@@ -26,16 +26,8 @@ async function main() {
   await prisma.wordEntry.deleteMany();
   await prisma.wordEntry.createMany({ data: entries });
 
-  const invite = await prisma.inviteCode.create({
-    data: {
-      code: randomBytes(5).toString("hex").toUpperCase(),
-      createdById: admin.id
-    }
-  });
-
   console.log(`Seeded admin: ${admin.email}`);
   console.log(`Seeded word entries: ${entries.length}`);
-  console.log(`Initial invite code: ${invite.code}`);
 }
 
 main()

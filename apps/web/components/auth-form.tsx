@@ -30,9 +30,15 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   return (
     <form action={submit} className="space-y-4">
-      <Input name="email" type="email" placeholder="邮箱" required />
+      {mode === "login" ? (
+        <Input name="login" placeholder="邮箱或用户名" required />
+      ) : (
+        <>
+          <Input name="email" type="email" placeholder="邮箱" required />
+          <Input name="username" placeholder="用户名" required minLength={2} maxLength={24} />
+        </>
+      )}
       <Input name="password" type="password" placeholder="密码" required minLength={mode === "register" ? 8 : undefined} />
-      {mode === "register" ? <Input name="inviteCode" placeholder="邀请码" required /> : null}
       {error ? <p className="text-sm text-ember">{error}</p> : null}
       <Button className="w-full bg-storm/18" disabled={loading}>
         {mode === "login" ? <LogIn size={18} /> : <UserPlus size={18} />}

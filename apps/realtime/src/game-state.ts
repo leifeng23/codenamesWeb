@@ -251,7 +251,7 @@ export async function buildRoomSnapshot(roomCode: string, viewerUserId?: string)
   const room = await prisma.room.findUnique({
     where: { code: roomCode },
     include: {
-      members: { include: { user: { select: { id: true, email: true } } } },
+      members: { include: { user: { select: { id: true, email: true, username: true } } } },
       wordCategories: true,
       currentGame: {
         include: {
@@ -282,6 +282,7 @@ export async function buildRoomSnapshot(roomCode: string, viewerUserId?: string)
     members: room.members.map((member) => ({
       userId: member.user.id,
       email: member.user.email,
+      username: member.user.username,
       team: member.team,
       canSpy: member.canSpy,
       isOwner: member.user.id === room.ownerId

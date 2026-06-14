@@ -35,7 +35,7 @@ export default async function HomePage() {
       <div className="mx-auto mt-12 grid max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="scanlines relative min-h-[480px] overflow-hidden rounded-lg border border-white/10 bg-black/20 p-8">
           <div className="max-w-xl">
-            <p className="text-sm text-brass">行动员：{user.email}</p>
+            <p className="text-sm text-brass">行动员：{user.username}</p>
             <h2 className="mt-5 text-5xl font-black leading-tight">创建房间，抽取 25 张密令牌。</h2>
             <p className="mt-5 max-w-lg text-white/62">
               房间码邀请朋友加入，间谍权限由房主控制。所有翻牌、阵营和事件都会被保存，方便中途恢复和回看。

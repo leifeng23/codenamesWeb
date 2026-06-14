@@ -8,9 +8,9 @@ export default function RegisterPage() {
     <main className="grid min-h-screen place-items-center px-4 py-10">
       <Starfield />
       <Panel className="w-full max-w-md">
-        <p className="text-sm uppercase tracking-[0.28em] text-brass/90">Invite Only</p>
+        <p className="text-sm uppercase tracking-[0.28em] text-brass/90">Open Registration</p>
         <h1 className="mt-3 text-3xl font-black">登记行动员</h1>
-        <p className="mt-2 text-sm text-white/58">第一版使用邀请制注册，避免陌生账号进入私密桌游局。</p>
+        <p className="mt-2 text-sm text-white/58">填写邮箱、用户名和密码即可进入游戏，房间内优先显示用户名。</p>
         <div className="mt-8">
           <AuthForm mode="register" />
         </div>

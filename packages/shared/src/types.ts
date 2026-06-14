@@ -59,6 +59,7 @@ export interface RoomSnapshot {
   members: Array<{
     userId: string;
     email: string;
+    username: string;
     team: Team;
     canSpy: boolean;
     isOwner: boolean;

@@ -2,7 +2,7 @@
 
 import { canGuess, canSubmitClue, type Faction, type RoomSnapshot, type Team, type WordCategory } from "@cosmere/shared";
 import { motion } from "framer-motion";
-import { Crown, Eye, Radio, ScrollText, Settings, ShieldAlert, Volume2, VolumeX } from "lucide-react";
+import { ChevronDown, Crown, Eye, Radio, ScrollText, Settings, ShieldAlert, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { useSound } from "./sound-provider";
@@ -37,6 +37,7 @@ export function RoomClient({
   const [roomCategories, setRoomCategories] = useState<WordCategory[]>(initialSnapshot.selectedCategories);
   const [clueWord, setClueWord] = useState("");
   const [clueCount, setClueCount] = useState(1);
+  const [categorySettingsOpen, setCategorySettingsOpen] = useState(false);
   const [error, setError] = useState("");
   const { enabled, setEnabled, play } = useSound();
   const viewer = snapshot.members.find((member) => member.userId === userId);
@@ -238,30 +239,14 @@ export function RoomClient({
         ) : null}
 
         <Panel>
-          <h2 className="text-lg font-bold">题库设置</h2>
-          <div className="mt-3">
-            <CategoryTree
-              selected={roomCategories}
-              onChange={setRoomCategories}
-              counts={snapshot.categoryCounts}
-              readonly={!snapshot.viewerIsOwner}
-            />
-          </div>
-          {snapshot.viewerIsOwner ? (
-            <Button className="mt-3 w-full" onClick={updateCategories}>
-              保存题库设置
-            </Button>
-          ) : null}
-        </Panel>
-
-        <Panel>
           <h2 className="text-lg font-bold">成员</h2>
           <div className="mt-3 space-y-2">
             {snapshot.members.map((member) => (
               <div key={member.userId} className="rounded-md border border-white/10 bg-white/[0.04] p-3">
                 <p className="truncate text-sm font-semibold">
-                  {member.email} {member.isOwner ? <span className="text-brass">房主</span> : null}
+                  {member.username} {member.isOwner ? <span className="text-brass">房主</span> : null}
                 </p>
+                <p className="mt-0.5 truncate text-xs text-white/35">{member.email}</p>
                 {snapshot.viewerIsOwner ? (
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <select
@@ -291,6 +276,33 @@ export function RoomClient({
             ))}
           </div>
         </Panel>
+
+        {snapshot.viewerIsOwner ? (
+          <Panel>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 text-left"
+              onClick={() => setCategorySettingsOpen((current) => !current)}
+            >
+              <h2 className="text-lg font-bold">题库设置</h2>
+              <ChevronDown size={18} className={cn("transition", categorySettingsOpen ? "" : "-rotate-90")} />
+            </button>
+            {categorySettingsOpen ? (
+              <>
+                <div className="mt-3">
+                  <CategoryTree
+                    selected={roomCategories}
+                    onChange={setRoomCategories}
+                    counts={snapshot.categoryCounts}
+                  />
+                </div>
+                <Button className="mt-3 w-full" onClick={updateCategories}>
+                  保存题库设置
+                </Button>
+              </>
+            ) : null}
+          </Panel>
+        ) : null}
       </aside>
     </div>
   );
