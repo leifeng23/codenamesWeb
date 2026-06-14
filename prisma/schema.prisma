@@ -9,26 +9,8 @@ datasource db {
 
 enum UserRole {
   USER
+  WORD_EDITOR
   ADMIN
-}
-
-enum Universe {
-  cosmere
-  cytonic
-  qq
-}
-
-enum WordCategory {
-  cosmere_characters
-  cosmere_culture
-  cosmere_lifeforms
-  cosmere_locations
-  cosmere_magic
-  cosmere_object_material
-  cytonic_characters
-  cytonic_spots
-  cytonic_concepts
-  qq_friends
 }
 
 enum Team {
@@ -93,10 +75,36 @@ model InviteCode {
   usedBy      User?     @relation("InviteUser", fields: [usedById], references: [id], onDelete: SetNull)
 }
 
+model WordArchive {
+  id         String         @id @default(cuid())
+  name       String         @unique
+  sortOrder  Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  categories WordCategory[]
+
+  @@map("word_archives")
+}
+
+model WordCategory {
+  id         String       @id @default(cuid())
+  archiveId  String
+  name       String
+  sortOrder  Int          @default(0)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  archive    WordArchive  @relation(fields: [archiveId], references: [id], onDelete: Cascade)
+  words      WordEntry[]
+  rooms      RoomWordCategory[]
+
+  @@unique([archiveId, name])
+  @@index([archiveId, sortOrder])
+  @@map("word_categories")
+}
+
 model WordEntry {
   id           String       @id @default(cuid())
-  universe     Universe
-  category     WordCategory
+  wordCategoryId String
   textCn       String
   textEnOrNote String
   sourceSheet  String?
@@ -104,9 +112,10 @@ model WordEntry {
   enabled      Boolean      @default(true)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+  category      WordCategory @relation(fields: [wordCategoryId], references: [id], onDelete: Restrict)
   cards        GameCard[]
 
-  @@index([category, enabled])
+  @@index([wordCategoryId, enabled])
   @@index([textCn])
 }
 
@@ -128,12 +137,13 @@ model Room {
 model RoomWordCategory {
   id        String       @id @default(cuid())
   roomId    String
-  category  WordCategory
+  wordCategoryId String
   createdAt DateTime     @default(now())
   room      Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  category  WordCategory @relation(fields: [wordCategoryId], references: [id], onDelete: Cascade)
 
-  @@unique([roomId, category])
-  @@index([category])
+  @@unique([roomId, wordCategoryId])
+  @@index([wordCategoryId])
 }
 
 model RoomMember {

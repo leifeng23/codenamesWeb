@@ -88,6 +88,12 @@ export async function requireAdmin() {
   return user;
 }
 
+export async function requireWordEditor() {
+  const user = await requireUser();
+  if (user.role !== "ADMIN" && user.role !== "WORD_EDITOR") redirect("/");
+  return user;
+}
+
 export async function clearSession() {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);

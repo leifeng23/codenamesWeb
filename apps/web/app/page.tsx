@@ -4,19 +4,12 @@ import { HomeActions } from "../components/home-actions";
 import { Starfield } from "../components/starfield";
 import { Panel } from "../components/ui/panel";
 import { currentUser } from "../lib/auth";
-import { prisma } from "../lib/prisma";
+import { buildCategoryTree } from "../lib/game-state";
 
 export default async function HomePage() {
   const user = await currentUser();
   if (!user) redirect("/login");
-  const categoryCountsRaw = await prisma.wordEntry.groupBy({
-    by: ["category"],
-    where: { enabled: true },
-    _count: { _all: true }
-  });
-  const categoryCounts = Object.fromEntries(
-    categoryCountsRaw.map((item) => [item.category, item._count._all])
-  );
+  const categoryTree = await buildCategoryTree();
 
   return (
     <main className="min-h-screen px-4 py-8">
@@ -26,11 +19,18 @@ export default async function HomePage() {
           <p className="text-xs uppercase tracking-[0.32em] text-storm/70">Cosmere CodeNames</p>
           <h1 className="mt-2 text-4xl font-black">星图密令行动台</h1>
         </div>
-        {user.role === "ADMIN" ? (
-          <Link className="rounded-md border border-white/15 px-4 py-2 text-sm text-white/80 hover:bg-white/10" href="/admin/words">
-            题库后台
-          </Link>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {user.role === "ADMIN" || user.role === "WORD_EDITOR" ? (
+            <Link className="rounded-md border border-white/15 px-4 py-2 text-sm text-white/80 hover:bg-white/10" href="/admin/words">
+              题库后台
+            </Link>
+          ) : null}
+          {user.role === "ADMIN" ? (
+            <Link className="rounded-md border border-white/15 px-4 py-2 text-sm text-white/80 hover:bg-white/10" href="/admin/users">
+              用户权限
+            </Link>
+          ) : null}
+        </div>
       </div>
       <div className="mx-auto mt-12 grid max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="scanlines relative min-h-[480px] overflow-hidden rounded-lg border border-white/10 bg-black/20 p-8">
@@ -46,7 +46,7 @@ export default async function HomePage() {
           <h2 className="text-xl font-bold">房间</h2>
           <p className="mt-2 text-sm text-white/56">没有公开大厅，第一版专注朋友局。</p>
           <div className="mt-6">
-            <HomeActions categoryCounts={categoryCounts} />
+            <HomeActions categoryTree={categoryTree} />
           </div>
         </Panel>
       </div>

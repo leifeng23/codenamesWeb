@@ -1,6 +1,6 @@
 "use client";
 
-import { canGuess, canSubmitClue, type Faction, type RoomSnapshot, type Team, type WordCategory } from "@cosmere/shared";
+import { canGuess, canSubmitClue, type Faction, type RoomSnapshot, type Team } from "@cosmere/shared";
 import { motion } from "framer-motion";
 import { ChevronDown, Crown, Eye, Radio, ScrollText, Settings, ShieldAlert, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -34,7 +34,7 @@ export function RoomClient({
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
-  const [roomCategories, setRoomCategories] = useState<WordCategory[]>(initialSnapshot.selectedCategories);
+  const [roomCategoryIds, setRoomCategoryIds] = useState<string[]>(initialSnapshot.selectedCategoryIds);
   const [clueWord, setClueWord] = useState("");
   const [clueCount, setClueCount] = useState(1);
   const [categorySettingsOpen, setCategorySettingsOpen] = useState(false);
@@ -45,8 +45,8 @@ export function RoomClient({
   const viewerCanGuess = viewer && snapshot.game ? canGuess(viewer, snapshot.game.turnTeam) : false;
 
   useEffect(() => {
-    setRoomCategories(snapshot.selectedCategories);
-  }, [snapshot.selectedCategories]);
+    setRoomCategoryIds(snapshot.selectedCategoryIds);
+  }, [snapshot.selectedCategoryIds]);
 
   useEffect(() => {
     const client = io(realtimeUrl, { transports: ["websocket", "polling"] });
@@ -97,7 +97,7 @@ export function RoomClient({
   }
 
   function updateCategories() {
-    socket?.emit("room:updateCategories", { roomCode, categories: roomCategories });
+    socket?.emit("room:updateCategories", { roomCode, categoryIds: roomCategoryIds });
   }
 
   function submitTurnClue() {
@@ -117,17 +117,17 @@ export function RoomClient({
   }
 
   return (
-    <div className="mx-auto grid max-w-7xl gap-4 xl:grid-cols-[1fr_320px]">
-      <section>
-        <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div>
+    <div className="mx-auto grid w-full max-w-7xl gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <section className="min-w-0">
+        <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <p className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-storm/70">
               <Radio size={14} /> {connected ? "实时连接" : "离线重连中"}
             </p>
-            <h1 className="mt-2 text-3xl font-black md:text-5xl">房间 {roomCode}</h1>
+            <h1 className="mt-2 break-words text-3xl font-black md:text-5xl">房间 {roomCode}</h1>
             {error ? <p className="mt-2 text-sm text-ember">{error}</p> : null}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button onClick={() => setEnabled(!enabled)} aria-label="切换音效">
               {enabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
             </Button>
@@ -138,7 +138,8 @@ export function RoomClient({
           </div>
         </header>
 
-        <div className="grid grid-cols-5 gap-2 md:gap-3">
+        <div className="overflow-x-auto pb-2">
+        <div className="grid min-w-[560px] grid-cols-5 gap-2 md:min-w-0 md:gap-3">
           {visibleCards.length > 0
             ? visibleCards.map((card) => (
                 <motion.button
@@ -165,9 +166,10 @@ export function RoomClient({
                 <div key={index} className="aspect-[1.18] rounded-lg border border-dashed border-white/12 bg-white/[0.035]" />
               ))}
         </div>
+        </div>
       </section>
 
-      <aside className="space-y-4">
+      <aside className="min-w-0 space-y-4">
         <Panel>
           <h2 className="flex items-center gap-2 text-lg font-bold">
             <Settings size={18} />
@@ -291,9 +293,9 @@ export function RoomClient({
               <>
                 <div className="mt-3">
                   <CategoryTree
-                    selected={roomCategories}
-                    onChange={setRoomCategories}
-                    counts={snapshot.categoryCounts}
+                    tree={snapshot.categoryTree}
+                    selected={roomCategoryIds}
+                    onChange={setRoomCategoryIds}
                   />
                 </div>
                 <Button className="mt-3 w-full" onClick={updateCategories}>

@@ -1,6 +1,6 @@
 import path from "path";
 import * as xlsx from "xlsx";
-import { WORD_CATEGORIES, type WordCategoryDefinition } from "./categories";
+import { LEGACY_EXCEL_CATEGORIES, type LegacyExcelCategoryDefinition } from "./categories";
 import type { WordEntrySeed } from "./types";
 
 type Row = Record<string, unknown> & { __rowNum__: number };
@@ -23,7 +23,7 @@ function rowsForSheet(workbook: xlsx.WorkBook, sheetName: string): Row[] {
   return rows.filter((row) => row.__rowNum__ >= 2);
 }
 
-function extractCategory(rows: Row[], definition: WordCategoryDefinition): WordEntrySeed[] {
+function extractCategory(rows: Row[], definition: LegacyExcelCategoryDefinition): WordEntrySeed[] {
   return rows.flatMap((row) => {
     const textCn = clean(row[definition.textField]);
     const textEnOrNote = clean(row[definition.noteField]);
@@ -31,8 +31,8 @@ function extractCategory(rows: Row[], definition: WordCategoryDefinition): WordE
 
     return [
       {
-        universe: definition.universe,
-        category: definition.category,
+        archiveName: definition.archiveName,
+        categoryName: definition.categoryName,
         textCn,
         textEnOrNote,
         sourceSheet: definition.sheet,
@@ -47,7 +47,7 @@ export function loadWordEntriesFromExcel(excelPath: string): WordEntrySeed[] {
   const workbook = xlsx.readFile(excelPath);
   const rowsBySheet = new Map<string, Row[]>();
 
-  return WORD_CATEGORIES.flatMap((definition) => {
+  return LEGACY_EXCEL_CATEGORIES.flatMap((definition) => {
     if (!rowsBySheet.has(definition.sheet)) {
       rowsBySheet.set(definition.sheet, rowsForSheet(workbook, definition.sheet));
     }

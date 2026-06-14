@@ -1,19 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import type { WordCategory } from "@cosmere/shared";
+import type { WordArchiveNode } from "@cosmere/shared";
 import { DoorOpen, Plus, X } from "lucide-react";
 import { CategoryTree } from "./category-tree";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
 export function HomeActions({
-  categoryCounts
+  categoryTree
 }: {
-  categoryCounts: Partial<Record<WordCategory, number>>;
+  categoryTree: WordArchiveNode[];
 }) {
   const [joinCode, setJoinCode] = useState("");
-  const [categories, setCategories] = useState<WordCategory[]>([]);
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [joinOpen, setJoinOpen] = useState(false);
   const [error, setError] = useState("");
 
@@ -21,7 +21,7 @@ export function HomeActions({
     const response = await fetch("/api/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ team: "spectator", categories })
+      body: JSON.stringify({ team: "spectator", categoryIds })
     });
     const room = await response.json();
     if (!response.ok) {
@@ -47,12 +47,12 @@ export function HomeActions({
 
   return (
     <div className="space-y-4">
-      <CategoryTree selected={categories} onChange={setCategories} counts={categoryCounts} />
+      <CategoryTree tree={categoryTree} selected={categoryIds} onChange={setCategoryIds} />
       <div className="grid gap-3 sm:grid-cols-2">
-      <Button onClick={createRoom} className="w-full bg-storm/18" disabled={categories.length === 0}>
-        <Plus size={18} />
-        创建房间
-      </Button>
+        <Button onClick={createRoom} className="w-full bg-storm/18" disabled={categoryIds.length === 0}>
+          <Plus size={18} />
+          创建房间
+        </Button>
         <Button onClick={() => setJoinOpen(true)} className="w-full">
           <DoorOpen size={18} />
           加入房间

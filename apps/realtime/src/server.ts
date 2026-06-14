@@ -6,8 +6,6 @@ import { z } from "zod";
 import { readUserIdFromCookie } from "./auth";
 import { buildRoomSnapshot, createGameForRoom, endTurn, revealCard, submitClue } from "./game-state";
 import { prisma } from "./prisma";
-import { ALL_WORD_CATEGORIES } from "@cosmere/shared";
-import type { WordCategory } from "@prisma/client";
 
 const port = Number(process.env.REALTIME_PORT ?? 4001);
 const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -42,7 +40,7 @@ const roleSchema = joinSchema.extend({
 const startSchema = joinSchema;
 const revealSchema = joinSchema.extend({ gameId: z.string(), cardId: z.string() });
 const categoriesSchema = joinSchema.extend({
-  categories: z.array(z.enum(ALL_WORD_CATEGORIES as [WordCategory, ...WordCategory[]])).min(1)
+  categoryIds: z.array(z.string().min(1)).min(1)
 });
 const clueSchema = joinSchema.extend({
   gameId: z.string(),
@@ -118,21 +116,25 @@ io.on("connection", (socket) => {
       const room = await prisma.room.findUnique({ where: { code: input.roomCode } });
       if (!room) throw new Error("Room not found");
       if (room.ownerId !== userId) throw new Error("Only owner can update categories");
+      const existingCount = await prisma.wordCategory.count({
+        where: { id: { in: input.categoryIds } }
+      });
+      if (existingCount !== new Set(input.categoryIds).size) throw new Error("题库分类不存在");
       const enabledCount = await prisma.wordEntry.count({
-        where: { enabled: true, category: { in: input.categories } }
+        where: { enabled: true, wordCategoryId: { in: input.categoryIds } }
       });
       if (enabledCount < 25) throw new Error("选中的题库不足 25 条，无法开局");
       await prisma.$transaction(async (tx) => {
         await tx.roomWordCategory.deleteMany({ where: { roomId: room.id } });
         await tx.roomWordCategory.createMany({
-          data: input.categories.map((category) => ({ roomId: room.id, category }))
+          data: input.categoryIds.map((wordCategoryId) => ({ roomId: room.id, wordCategoryId }))
         });
         await tx.gameEvent.create({
           data: {
             roomId: room.id,
             userId,
             type: "room.categories_updated",
-            payload: { categories: input.categories }
+            payload: { categoryIds: input.categoryIds }
           }
         });
       });

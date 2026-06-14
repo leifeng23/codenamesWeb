@@ -1,15 +1,15 @@
-import { WORD_CATEGORY_LABELS } from "@cosmere/shared";
 import { defaultUnityExcelPath, loadWordEntriesFromExcel } from "./word-importer";
 
 const entries = loadWordEntriesFromExcel(defaultUnityExcelPath());
 const byCategory = entries.reduce<Record<string, number>>((counts, entry) => {
-  counts[entry.category] = (counts[entry.category] ?? 0) + 1;
+  const key = `${entry.archiveName} / ${entry.categoryName}`;
+  counts[key] = (counts[key] ?? 0) + 1;
   return counts;
 }, {});
 
 console.log(`Loaded ${entries.length} word entries`);
 for (const [category, count] of Object.entries(byCategory)) {
-  console.log(`${WORD_CATEGORY_LABELS[category as keyof typeof WORD_CATEGORY_LABELS]} (${category}): ${count}`);
+  console.log(`${category}: ${count}`);
 }
 
 const duplicatePairs = new Map<string, number>();

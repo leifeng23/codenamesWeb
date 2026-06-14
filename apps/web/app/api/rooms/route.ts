@@ -1,5 +1,3 @@
-import { ALL_WORD_CATEGORIES } from "@cosmere/shared";
-import type { WordCategory } from "@prisma/client";
 import { z } from "zod";
 import { requireUser } from "../../../lib/auth";
 import { handleApiError, makeRoomCode, ok } from "../../../lib/api";
@@ -7,15 +5,21 @@ import { prisma } from "../../../lib/prisma";
 
 const createSchema = z.object({
   team: z.enum(["red", "blue", "spectator"]).default("spectator"),
-  categories: z.array(z.enum(ALL_WORD_CATEGORIES as [WordCategory, ...WordCategory[]])).default(ALL_WORD_CATEGORIES)
+  categoryIds: z.array(z.string().min(1)).min(1)
 });
 
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
     const input = createSchema.parse(await request.json().catch(() => ({})));
+    const existingCount = await prisma.wordCategory.count({
+      where: { id: { in: input.categoryIds } }
+    });
+    if (existingCount !== new Set(input.categoryIds).size) {
+      return Response.json({ error: "题库分类不存在" }, { status: 400 });
+    }
     const enabledCount = await prisma.wordEntry.count({
-      where: { enabled: true, category: { in: input.categories } }
+      where: { enabled: true, wordCategoryId: { in: input.categoryIds } }
     });
     if (enabledCount < 25) {
       return Response.json({ error: "选中的题库不足 25 条，无法创建房间" }, { status: 400 });
@@ -40,7 +44,7 @@ export async function POST(request: Request) {
           }
         },
         wordCategories: {
-          create: input.categories.map((category) => ({ category }))
+          create: input.categoryIds.map((wordCategoryId) => ({ wordCategoryId }))
         }
       }
     });

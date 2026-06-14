@@ -2,31 +2,17 @@ export type Faction = "red" | "blue" | "neutral" | "assassin";
 
 export type Team = "red" | "blue" | "spectator";
 
-export type Universe = "cosmere" | "cytonic" | "qq";
-
 export type TurnTeam = "red" | "blue";
 
 export type GamePhase = "waiting_for_clue" | "guessing" | "finished";
-
-export type WordCategory =
-  | "cosmere_characters"
-  | "cosmere_culture"
-  | "cosmere_lifeforms"
-  | "cosmere_locations"
-  | "cosmere_magic"
-  | "cosmere_object_material"
-  | "cytonic_characters"
-  | "cytonic_spots"
-  | "cytonic_concepts"
-  | "qq_friends";
 
 export type RoomStatus = "lobby" | "playing" | "finished";
 
 export type GameStatus = "active" | "finished";
 
 export interface WordEntrySeed {
-  universe: Universe;
-  category: WordCategory;
+  archiveName: string;
+  categoryName: string;
   textCn: string;
   textEnOrNote: string;
   sourceSheet: string;
@@ -49,13 +35,27 @@ export interface PublicCard {
   faction?: Faction;
 }
 
+export interface WordCategoryNode {
+  id: string;
+  name: string;
+  archiveId: string;
+  archiveName: string;
+  count: number;
+}
+
+export interface WordArchiveNode {
+  id: string;
+  name: string;
+  categories: WordCategoryNode[];
+}
+
 export interface RoomSnapshot {
   roomCode: string;
   status: RoomStatus;
   currentGameId: string | null;
   viewerIsOwner: boolean;
-  selectedCategories: WordCategory[];
-  categoryCounts: Partial<Record<WordCategory, number>>;
+  selectedCategoryIds: string[];
+  categoryTree: WordArchiveNode[];
   members: Array<{
     userId: string;
     email: string;

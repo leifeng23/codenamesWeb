@@ -1,6 +1,5 @@
-import type { Faction } from "@cosmere/shared";
+import type { Faction, WordArchiveNode } from "@cosmere/shared";
 import {
-  ALL_WORD_CATEGORIES,
   canGuess,
   canMemberSpy,
   canSubmitClue,
@@ -8,8 +7,7 @@ import {
   generateCards,
   nextTurnTeam,
   shouldEndTurnAfterReveal,
-  type TurnTeam,
-  type WordCategory
+  type TurnTeam
 } from "@cosmere/shared";
 import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
@@ -17,22 +15,53 @@ import { prisma } from "./prisma";
 export async function ensureRoomCategories(roomId: string) {
   const existing = await prisma.roomWordCategory.findMany({
     where: { roomId },
-    select: { category: true }
+    select: { wordCategoryId: true }
   });
   if (existing.length > 0) {
-    return existing.map((item) => item.category as WordCategory);
+    return existing.map((item) => item.wordCategoryId);
   }
+  const availableCategories = await prisma.wordCategory.findMany({
+    where: { words: { some: { enabled: true } } },
+    select: { id: true },
+    orderBy: [{ archive: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
+  });
   await prisma.roomWordCategory.createMany({
-    data: ALL_WORD_CATEGORIES.map((category) => ({ roomId, category })),
+    data: availableCategories.map((category) => ({ roomId, wordCategoryId: category.id })),
     skipDuplicates: true
   });
-  return [...ALL_WORD_CATEGORIES];
+  return availableCategories.map((category) => category.id);
+}
+
+export async function buildCategoryTree(): Promise<WordArchiveNode[]> {
+  const [archives, counts] = await Promise.all([
+    prisma.wordArchive.findMany({
+      include: { categories: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
+    }),
+    prisma.wordEntry.groupBy({
+      by: ["wordCategoryId"],
+      where: { enabled: true },
+      _count: { _all: true }
+    })
+  ]);
+  const countByCategory = new Map(counts.map((item) => [item.wordCategoryId, item._count._all]));
+  return archives.map((archive) => ({
+    id: archive.id,
+    name: archive.name,
+    categories: archive.categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      archiveId: archive.id,
+      archiveName: archive.name,
+      count: countByCategory.get(category.id) ?? 0
+    }))
+  }));
 }
 
 export async function createGameForRoom(roomId: string, userId: string) {
-  const selectedCategories = await ensureRoomCategories(roomId);
+  const selectedCategoryIds = await ensureRoomCategories(roomId);
   const words = await prisma.wordEntry.findMany({
-    where: { enabled: true, category: { in: selectedCategories } },
+    where: { enabled: true, wordCategoryId: { in: selectedCategoryIds } },
     select: { id: true }
   });
   if (words.length < 25) {
@@ -73,7 +102,7 @@ export async function createGameForRoom(roomId: string, userId: string) {
         gameId: game.id,
         userId,
         type: "game.started",
-        payload: { seed, categories: selectedCategories }
+        payload: { seed, categoryIds: selectedCategoryIds }
       }
     });
     return game;
@@ -263,22 +292,17 @@ export async function buildRoomSnapshot(roomCode: string, viewerUserId?: string)
   if (!room) return null;
   const viewer = room.members.find((member) => member.userId === viewerUserId);
   const canSeeFactions = viewer ? canMemberSpy(viewer) : false;
-  const selectedCategories = room.wordCategories.length
-    ? room.wordCategories.map((item) => item.category as WordCategory)
-    : [...ALL_WORD_CATEGORIES];
-  const categoryCountsRaw = await prisma.wordEntry.groupBy({
-    by: ["category"],
-    where: { enabled: true },
-    _count: { _all: true }
-  });
-  const categoryCounts = Object.fromEntries(categoryCountsRaw.map((item) => [item.category, item._count._all]));
+  const categoryTree = await buildCategoryTree();
+  const selectedCategoryIds = room.wordCategories.length
+    ? room.wordCategories.map((item) => item.wordCategoryId)
+    : categoryTree.flatMap((archive) => archive.categories.map((category) => category.id));
   return {
     roomCode: room.code,
     status: room.status,
     currentGameId: room.currentGameId,
     viewerIsOwner: room.ownerId === viewerUserId,
-    selectedCategories,
-    categoryCounts,
+    selectedCategoryIds,
+    categoryTree,
     members: room.members.map((member) => ({
       userId: member.user.id,
       email: member.user.email,
