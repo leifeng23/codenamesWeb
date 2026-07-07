@@ -1,9 +1,10 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/package.json
+COPY apps/realtime/package.json apps/realtime/package.json
 COPY packages/shared/package.json packages/shared/package.json
-RUN npm install
+RUN npm ci --no-audit --no-fund
 
 FROM node:22-alpine AS builder
 WORKDIR /app

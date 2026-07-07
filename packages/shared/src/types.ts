@@ -49,6 +49,31 @@ export interface WordArchiveNode {
   categories: WordCategoryNode[];
 }
 
+/** 房间操作日志条目（服务端已过滤为可公开字段，seed 等敏感信息不会下发）。 */
+export interface RoomEventSummary {
+  id: string;
+  type: string;
+  createdAt: string;
+  actorName: string | null;
+  gameId: string | null;
+  data: {
+    clueWord?: string;
+    clueCount?: number;
+    turnTeam?: TurnTeam;
+    faction?: Faction;
+    position?: number;
+    turnEnded?: boolean;
+    gameFinished?: boolean;
+    reason?: string;
+    nextTurnTeam?: TurnTeam;
+    winnerTeam?: TurnTeam | null;
+    targetName?: string;
+    team?: Team;
+    canSpy?: boolean;
+    categoryCount?: number;
+  };
+}
+
 export interface RoomSnapshot {
   roomCode: string;
   status: RoomStatus;
@@ -56,9 +81,9 @@ export interface RoomSnapshot {
   viewerIsOwner: boolean;
   selectedCategoryIds: string[];
   categoryTree: WordArchiveNode[];
+  recentEvents: RoomEventSummary[];
   members: Array<{
     userId: string;
-    email: string;
     username: string;
     team: Team;
     canSpy: boolean;

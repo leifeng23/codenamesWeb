@@ -9,8 +9,11 @@ const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 function secret() {
   const value = process.env.AUTH_SECRET;
-  if (!value) return "dev-secret-change-me";
-  return value;
+  if (value && value.length >= 16) return value;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_SECRET 未配置或过短（至少 16 位），生产环境拒绝启动");
+  }
+  return "dev-secret-change-me";
 }
 
 async function hmac(value: string) {
@@ -62,6 +65,11 @@ async function readSessionUserId() {
     signatureBuffer.length !== expectedBuffer.length ||
     !timingSafeEqual(signatureBuffer, expectedBuffer)
   ) {
+    return null;
+  }
+  // 校验签发时间：超过有效期的 token 视为无效（此前只靠 cookie maxAge，被窃取的 token 永久有效）
+  const issuedAt = Number(parts[2]);
+  if (!Number.isFinite(issuedAt) || Date.now() - issuedAt > SESSION_MAX_AGE_SECONDS * 1000) {
     return null;
   }
   return parts[0];

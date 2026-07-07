@@ -29,7 +29,7 @@ async function requireTopAdmin() {
 export async function GET() {
   const denied = await requireTopAdmin();
   if (denied) return denied;
-  return ok({ archives: await buildCategoryTree() });
+  return ok({ archives: await buildCategoryTree(true) });
 }
 
 export async function POST(request: Request) {
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     await prisma.wordArchive.create({
       data: { name: input.name, sortOrder: (count + 1) * 10 }
     });
-    return ok({ archives: await buildCategoryTree() }, { status: 201 });
+    return ok({ archives: await buildCategoryTree(true) }, { status: 201 });
   } catch (error) {
     return mapError(error);
   }
@@ -54,7 +54,7 @@ export async function PATCH(request: Request) {
     const input = patchSchema.parse(await request.json());
     const { id, ...data } = input;
     await prisma.wordArchive.update({ where: { id }, data });
-    return ok({ archives: await buildCategoryTree() });
+    return ok({ archives: await buildCategoryTree(true) });
   } catch (error) {
     return mapError(error);
   }
@@ -70,7 +70,7 @@ export async function DELETE(request: Request) {
       prisma.wordEntry.deleteMany({ where: { category: { archiveId: id } } }),
       prisma.wordArchive.delete({ where: { id } })
     ]);
-    return ok({ archives: await buildCategoryTree() });
+    return ok({ archives: await buildCategoryTree(true) });
   } catch (error) {
     return mapError(error);
   }

@@ -5,6 +5,7 @@ import {
   canSubmitClue,
   type Faction,
   type GuessOutcome,
+  type RoomEventSummary,
   type RoomSnapshot,
   type Team,
   type TurnTeam
@@ -15,6 +16,7 @@ import {
   Crown,
   Eye,
   Radio,
+  ScrollText,
   Settings,
   ShieldAlert,
   Sparkles,
@@ -54,6 +56,62 @@ const ringColorClass: Record<Faction, string> = {
 };
 
 const teamColorHex: Record<TurnTeam, string> = { red: "#ff5d4d", blue: "#5bd7ff" };
+
+const teamLabel: Record<TurnTeam, string> = { red: "红队", blue: "蓝队" };
+const factionResultLabel: Record<Faction, string> = {
+  red: "红方特工",
+  blue: "蓝方特工",
+  neutral: "路人",
+  assassin: "刺客"
+};
+
+function formatEventTime(iso: string) {
+  const date = new Date(iso);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/** 把服务端下发的安全事件摘要转成可读文案；未知类型返回 null 不展示。 */
+function describeEvent(
+  event: RoomEventSummary,
+  cardTextByPosition: Map<number, string> | null,
+  currentGameId: string | null
+): string | null {
+  const actor = event.actorName ?? "某成员";
+  const data = event.data;
+  switch (event.type) {
+    case "game.started":
+      return `${actor} 开始了新对局`;
+    case "turn.clue_submitted":
+      return `${data.turnTeam ? teamLabel[data.turnTeam] : ""}间谍 ${actor} 给出线索「${data.clueWord} ${data.clueCount}」`;
+    case "card.revealed": {
+      const sameGame = event.gameId != null && event.gameId === currentGameId;
+      const text = sameGame && data.position != null ? cardTextByPosition?.get(data.position) : null;
+      const target = text ? `「${text}」` : data.position != null ? `第 ${data.position + 1} 张牌` : "一张牌";
+      return `${actor} 翻开${target}${data.faction ? ` → ${factionResultLabel[data.faction]}` : ""}`;
+    }
+    case "turn.ended":
+      return data.reason === "manual"
+        ? `${actor} 结束了回合`
+        : data.nextTurnTeam
+          ? `回合结束，轮到${teamLabel[data.nextTurnTeam]}`
+          : "回合结束";
+    case "game.finished":
+      return data.winnerTeam
+        ? `${teamLabel[data.winnerTeam]}获胜${data.reason === "assassin" ? "（对方翻中刺客）" : ""}`
+        : "对局结束";
+    case "member.role_assigned": {
+      const role =
+        data.team === "spectator"
+          ? "旁观"
+          : `${data.team ? teamLabel[data.team as TurnTeam] : ""}${data.canSpy ? "间谍" : "队员"}`;
+      return `${actor} 将 ${data.targetName ?? "成员"} 设为${role}`;
+    }
+    case "room.categories_updated":
+      return `${actor} 更新了题库${data.categoryCount != null ? `（${data.categoryCount} 个分类）` : ""}`;
+    default:
+      return null;
+  }
+}
 
 interface ActiveFx {
   cardId: string;
@@ -184,6 +242,10 @@ export function RoomClient({
   }, [play, realtimeUrl, roomCode, userId]);
 
   const visibleCards = useMemo(() => snapshot.game?.cards ?? [], [snapshot.game?.cards]);
+  const cardTextByPosition = useMemo(
+    () => new Map(visibleCards.map((card) => [card.position, card.textCn])),
+    [visibleCards]
+  );
   const game = snapshot.game;
   const isFinished = game?.phase === "finished";
   const winnerTeam = game?.winnerTeam ?? null;
@@ -360,8 +422,9 @@ export function RoomClient({
               </div>
             ) : null}
 
-            <div className="overflow-x-auto px-1 pt-3 pb-3 md:overflow-x-visible">
-              <div className="grid min-w-[520px] grid-cols-5 gap-2 md:min-w-0 md:gap-3">
+            {/* 移动端不再横向滚动：棋盘随视口宽度自适应缩放 */}
+            <div className="px-0.5 pt-3 pb-3 md:px-1">
+              <div className="grid grid-cols-5 gap-1.5 sm:gap-2 md:gap-3">
                 {visibleCards.length > 0
                   ? visibleCards.map((card) => {
                       const cardFx = fx?.cardId === card.id ? fx : null;
@@ -383,7 +446,7 @@ export function RoomClient({
                             if (!card.revealed) reveal(card.id);
                           }}
                           className={cn(
-                            "card-tile relative aspect-[1.18] select-none rounded-xl",
+                            "card-tile relative aspect-[0.92] select-none rounded-lg sm:aspect-[1.18] sm:rounded-xl",
                             !card.revealed && "card-idle",
                             fxAnimClass
                           )}
@@ -404,15 +467,15 @@ export function RoomClient({
                             {/* 正面：词 */}
                             <div
                               className={cn(
-                                "card-face absolute inset-0 flex flex-col overflow-hidden rounded-xl border border-white/12 bg-white/[0.055] p-2 text-left shadow-xl md:p-3",
+                                "card-face absolute inset-0 flex flex-col overflow-hidden rounded-lg border border-white/12 bg-white/[0.055] p-1 text-left shadow-xl sm:rounded-xl sm:p-2 md:p-3",
                                 showHint ? hintFactionClass[card.faction as Faction] : null
                               )}
                             >
-                              <span className="block text-[11px] text-white/45">
+                              <span className="hidden text-[11px] text-white/45 sm:block">
                                 {String(card.position + 1).padStart(2, "0")}
                               </span>
-                              <span className="mt-1.5 block text-base font-black leading-tight md:text-xl">{card.textCn}</span>
-                              <span className="mt-1 block break-words text-xs leading-tight text-white/55 md:text-sm">
+                              <span className="mt-0.5 block text-[13px] font-black leading-tight sm:mt-1.5 sm:text-base md:text-xl">{card.textCn}</span>
+                              <span className="mt-0.5 line-clamp-2 block break-words text-[10px] leading-tight text-white/55 sm:mt-1 sm:text-xs md:text-sm">
                                 {card.textEnOrNote}
                               </span>
                               {showHint && card.faction === "assassin" ? (
@@ -422,13 +485,13 @@ export function RoomClient({
                             {/* 背面：阵营色 */}
                             <div
                               className={cn(
-                                "card-face absolute inset-0 flex flex-col justify-between overflow-hidden rounded-xl border border-white/15 p-2 text-left md:p-3",
+                                "card-face absolute inset-0 flex flex-col justify-between overflow-hidden rounded-lg border border-white/15 p-1 text-left sm:rounded-xl sm:p-2 md:p-3",
                                 card.faction ? backFactionClass[card.faction] : "bg-white/10"
                               )}
                               style={{ transform: "rotateY(180deg)" }}
                             >
-                              <span className="text-[11px] opacity-70">{String(card.position + 1).padStart(2, "0")}</span>
-                              <span className="block text-sm font-black leading-tight md:text-base">{card.textCn}</span>
+                              <span className="hidden text-[11px] opacity-70 sm:block">{String(card.position + 1).padStart(2, "0")}</span>
+                              <span className="block text-[11px] font-black leading-tight sm:text-sm md:text-base">{card.textCn}</span>
                               {card.faction === "assassin" ? (
                                 <ShieldAlert className="absolute bottom-2 right-2 opacity-80" size={22} />
                               ) : null}
@@ -438,7 +501,10 @@ export function RoomClient({
                       );
                     })
                   : Array.from({ length: 25 }, (_, index) => (
-                      <div key={index} className="aspect-[1.18] rounded-xl border border-dashed border-white/12 bg-white/[0.035]" />
+                      <div
+                        key={index}
+                        className="aspect-[0.92] rounded-lg border border-dashed border-white/12 bg-white/[0.035] sm:aspect-[1.18] sm:rounded-xl"
+                      />
                     ))}
               </div>
             </div>
@@ -542,7 +608,6 @@ export function RoomClient({
                     <p className="truncate text-sm font-semibold">
                       {member.username} {member.isOwner ? <span className="text-brass">房主</span> : null}
                     </p>
-                    <p className="mt-0.5 truncate text-xs text-white/35">{member.email}</p>
                     {snapshot.viewerIsOwner ? (
                       <div className="mt-2 grid grid-cols-2 gap-2">
                         <select
@@ -564,13 +629,36 @@ export function RoomClient({
                         </button>
                       </div>
                     ) : (
-                      <p className="text-xs text-white/48">
+                      <p className="mt-0.5 text-xs text-white/48">
                         {member.team === "red" ? "红队" : member.team === "blue" ? "蓝队" : "旁观"} ·{" "}
                         {member.canSpy ? "间谍" : "队员"}
                       </p>
                     )}
                   </div>
                 ))}
+              </div>
+            </Panel>
+
+            <Panel>
+              <h2 className="flex items-center gap-2 text-lg font-bold">
+                <ScrollText size={18} />
+                操作记录
+              </h2>
+              <div className="mt-3 max-h-64 space-y-1.5 overflow-y-auto pr-1">
+                {snapshot.recentEvents?.length ? (
+                  snapshot.recentEvents.map((event) => {
+                    const text = describeEvent(event, cardTextByPosition, game?.id ?? null);
+                    if (!text) return null;
+                    return (
+                      <div key={event.id} className="flex items-baseline gap-2 text-xs leading-relaxed">
+                        <span className="shrink-0 tabular-nums text-white/30">{formatEventTime(event.createdAt)}</span>
+                        <span className="min-w-0 break-words text-white/70">{text}</span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-white/40">还没有操作记录。</p>
+                )}
               </div>
             </Panel>
 

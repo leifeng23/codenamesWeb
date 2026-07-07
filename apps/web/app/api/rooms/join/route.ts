@@ -24,9 +24,8 @@ export async function POST(request: Request) {
         team: input.team,
         canSpy: false
       },
-      update: {
-        team: input.team
-      }
+      // 已是成员则保留现有队伍/角色：重复加入不应把房主分配好的角色重置为旁观
+      update: {}
     });
 
     return ok({ code });

@@ -12,8 +12,8 @@ const createSchema = z.object({
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
-    // 惰性清理长期不活跃的房间，避免房间永久堆积
-    await cleanupStaleRooms().catch(() => undefined);
+    // 惰性清理长期不活跃的房间（异步执行，不阻塞建房请求）
+    void cleanupStaleRooms().catch(() => undefined);
     const input = createSchema.parse(await request.json().catch(() => ({})));
     const existingCount = await prisma.wordCategory.count({
       where: { id: { in: input.categoryIds } }

@@ -8,7 +8,7 @@ import { prisma } from "../../../lib/prisma";
 export default async function WordsAdminPage() {
   const user = await requireWordEditor();
   const [categoryTree, words] = await Promise.all([
-    buildCategoryTree(),
+    buildCategoryTree(true),
     prisma.wordEntry.findMany({
       select: {
         id: true,

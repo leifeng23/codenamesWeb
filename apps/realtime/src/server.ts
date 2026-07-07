@@ -4,7 +4,15 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 import { z } from "zod";
 import { readUserIdFromCookie } from "./auth";
-import { buildRoomSnapshot, createGameForRoom, disbandRoom, endTurn, revealCard, submitClue } from "./game-state";
+import {
+  buildRoomSnapshotBase,
+  createGameForRoom,
+  disbandRoom,
+  endTurn,
+  projectRoomSnapshot,
+  revealCard,
+  submitClue
+} from "./game-state";
 import { prisma } from "./prisma";
 
 const port = Number(process.env.REALTIME_PORT ?? 4001);
@@ -51,13 +59,14 @@ const endTurnSchema = joinSchema.extend({ gameId: z.string() });
 
 async function emitSnapshot(roomCode: string, event = "room:snapshot", extra?: Record<string, unknown>) {
   const sockets = await io.in(roomCode).fetchSockets();
-  await Promise.all(
-    sockets.map(async (socket) => {
-      const userId = socket.data.userId as string | undefined;
-      const snapshot = await buildRoomSnapshot(roomCode, userId);
-      if (snapshot) socket.emit(event, { ...snapshot, ...extra });
-    })
-  );
+  if (sockets.length === 0) return;
+  // 只查一次库，按观察者视角零查询投影（此前是每个 socket 全量重建，N 人房 = N 份查询）
+  const base = await buildRoomSnapshotBase(roomCode);
+  if (!base) return;
+  for (const socket of sockets) {
+    const userId = socket.data.userId as string | undefined;
+    socket.emit(event, { ...projectRoomSnapshot(base, userId), ...extra });
+  }
 }
 
 io.on("connection", (socket) => {
