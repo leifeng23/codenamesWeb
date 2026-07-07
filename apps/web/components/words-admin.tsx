@@ -329,7 +329,7 @@ export function WordsAdmin({
         </div>
 
         {/* 树 */}
-        <div className="mt-4 max-h-[60vh] space-y-3 overflow-auto pr-1">
+        <div className="nice-scroll mt-4 max-h-[60vh] space-y-3 overflow-auto pr-1">
           {archives.map((archive) => (
             <div key={archive.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
               <div className="mb-1 flex items-center gap-1">
@@ -508,7 +508,7 @@ export function WordsAdmin({
         </div>
 
         {/* 词条表 */}
-        <div className="mt-4 max-h-[64vh] overflow-auto rounded-lg border border-white/10">
+        <div className="nice-scroll mt-4 max-h-[64vh] overflow-auto rounded-lg border border-white/10">
           <table className="w-full min-w-[760px] border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 bg-panel text-white/62">
               <tr>

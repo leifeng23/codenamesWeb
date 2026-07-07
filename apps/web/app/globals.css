@@ -38,6 +38,47 @@ select {
   font: inherit;
 }
 
+input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #5bd7ff;
+  cursor: pointer;
+}
+input[type="checkbox"]:disabled {
+  cursor: default;
+}
+
+/* 隐藏 number 输入的原生步进箭头（深色主题下观感突兀） */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ===== 细滚动条（聊天、日志、题库树等滚动容器） ===== */
+.nice-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.nice-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.nice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nice-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+.nice-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
 /* ===== 夜空背景层（配合 Starfield 组件） ===== */
 .nebula-layer {
   background:

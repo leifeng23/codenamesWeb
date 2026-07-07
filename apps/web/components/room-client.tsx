@@ -13,11 +13,12 @@ import {
 } from "@cosmere/shared";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Check,
   ChevronDown,
+  Copy,
   Crown,
   Eye,
   MessageCircle,
-  Radio,
   ScrollText,
   Send,
   Settings,
@@ -155,6 +156,7 @@ export function RoomClient({
   const [dismissedResultFor, setDismissedResultFor] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<TeamChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [codeCopied, setCodeCopied] = useState(false);
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const fxNonce = useRef(0);
   const { enabled, setEnabled, play } = useSound();
@@ -317,6 +319,16 @@ export function RoomClient({
     socket.emit("turn:end", { roomCode, gameId: game.id });
   }
 
+  async function copyRoomCode() {
+    try {
+      await navigator.clipboard.writeText(roomCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1600);
+    } catch {
+      setError("复制失败，请手动复制房间码");
+    }
+  }
+
   // ===== 队伍聊天 =====
   const viewerIsSpectator = !viewer || viewer.team === "spectator";
   const canChat = !!viewer && (viewer.team === "red" || viewer.team === "blue") && !viewer.canSpy;
@@ -328,7 +340,7 @@ export function RoomClient({
 
   useEffect(() => {
     const list = chatListRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
+    if (list) list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
   }, [chatVisibleMessages.length]);
 
   function sendChat(event: React.FormEvent) {
@@ -357,6 +369,22 @@ export function RoomClient({
 
   return (
     <div className="relative">
+      {/* ===== 错误提示 toast（固定层，不挤压页面布局，也不受震屏 transform 影响） ===== */}
+      <AnimatePresence>
+        {error ? (
+          <motion.div
+            className="fixed left-1/2 top-4 z-[90] w-max max-w-[90vw] rounded-lg border border-ember/45 bg-[#241014]/95 px-4 py-2.5 text-sm text-ember shadow-2xl backdrop-blur"
+            initial={{ opacity: 0, y: -16, x: "-50%" }}
+            animate={{ opacity: 1, y: 0, x: "-50%" }}
+            exit={{ opacity: 0, y: -10, x: "-50%" }}
+            transition={{ duration: 0.22 }}
+            role="alert"
+          >
+            {error}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
       {/* ===== 固定特效层（不受滚动容器裁剪、不被侧栏遮挡） ===== */}
       {edgeFlash ? <div className="edge-flash" style={{ boxShadow: `inset 0 0 140px 36px ${edgeFlash}` }} /> : null}
       {assassinBlast ? (
@@ -399,26 +427,40 @@ export function RoomClient({
             <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-storm/70">
-                  <Radio size={14} /> {connected ? "实时连接" : "离线重连中"}
+                  <span
+                    className={cn(
+                      "inline-block size-2 rounded-full transition",
+                      connected
+                        ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]"
+                        : "animate-pulse bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]"
+                    )}
+                  />
+                  {connected ? "实时连接" : "连接中…"}
                 </p>
-                <h1 className="mt-2 break-words text-3xl font-black md:text-5xl">房间 {roomCode}</h1>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <h1 className="break-words text-3xl font-black md:text-5xl">房间 {roomCode}</h1>
+                  <button
+                    onClick={copyRoomCode}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-white/12 bg-white/[0.06] px-2.5 py-1.5 text-xs text-white/70 transition hover:bg-white/12 active:scale-95"
+                    aria-label="复制房间码"
+                  >
+                    {codeCopied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                    {codeCopied ? "已复制" : "复制房间码"}
+                  </button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={() => setEnabled(!enabled)} aria-label="切换音效">
                   {enabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
                 </Button>
                 {snapshot.viewerIsOwner ? (
-                  <Button onClick={startGame}>
+                  <Button onClick={startGame} disabled={!connected}>
                     <Crown size={18} />
                     {game ? "重开一局" : "开始游戏"}
                   </Button>
                 ) : null}
               </div>
             </header>
-
-            {error ? (
-              <div className="mb-4 rounded-md border border-ember/40 bg-ember/12 px-4 py-2 text-sm text-ember">{error}</div>
-            ) : null}
 
             {/* 当前线索醒目横幅 */}
             {game && game.phase === "guessing" && game.currentClue ? (
@@ -469,23 +511,23 @@ export function RoomClient({
                               : ""
                         : "";
                       const showHint = !card.revealed && card.faction;
+                      const actionable = !card.revealed && viewerCanGuess && game?.phase === "guessing";
                       return (
                         <motion.button
                           key={card.id}
                           data-card-id={card.id}
+                          disabled={card.revealed}
+                          aria-label={card.revealed ? `已翻开：${card.textCn}` : `翻开「${card.textCn}」`}
                           onClick={() => {
                             if (!card.revealed) reveal(card.id);
                           }}
                           className={cn(
-                            "card-tile relative aspect-[0.92] select-none rounded-lg sm:aspect-[1.18] sm:rounded-xl",
+                            "card-tile relative aspect-[0.92] select-none rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-storm/60 sm:aspect-[1.18] sm:rounded-xl",
                             !card.revealed && "card-idle",
+                            actionable ? "cursor-pointer" : "cursor-default",
                             fxAnimClass
                           )}
-                          whileHover={
-                            !card.revealed && viewerCanGuess && game?.phase === "guessing"
-                              ? { y: -4, scale: 1.02 }
-                              : undefined
-                          }
+                          whileHover={actionable ? { y: -4, scale: 1.02 } : undefined}
                           whileTap={!card.revealed ? { scale: 0.97 } : undefined}
                         >
                           <motion.div
@@ -596,28 +638,60 @@ export function RoomClient({
               {game && !isFinished ? (
                 <div className="mt-4 border-t border-white/10 pt-4">
                   {viewerCanSubmitClue && game.phase === "waiting_for_clue" ? (
-                    <div className="space-y-3">
+                    <form
+                      className="space-y-3"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (clueWord.trim()) submitTurnClue();
+                      }}
+                    >
                       <p className="text-xs font-semibold uppercase tracking-wide text-white/45">你是间谍 · 提交线索</p>
                       <input
-                        className="h-10 w-full rounded-md border border-white/12 bg-black/25 px-3 text-sm"
+                        className="h-10 w-full rounded-md border border-white/12 bg-black/25 px-3 text-sm outline-none transition placeholder:text-white/35 focus:border-storm/70 focus:ring-2 focus:ring-storm/20"
                         value={clueWord}
+                        autoComplete="off"
+                        maxLength={40}
                         onChange={(event) => setClueWord(event.target.value)}
                         placeholder="输入线索词"
                       />
-                      <input
-                        className="h-10 w-full rounded-md border border-white/12 bg-black/25 px-3 text-sm"
-                        type="number"
-                        min={1}
-                        max={9}
-                        value={clueCount}
-                        onChange={(event) =>
-                          setClueCount(Math.max(1, Math.min(9, Math.round(Number(event.target.value) || 1))))
-                        }
-                      />
-                      <Button onClick={submitTurnClue} disabled={!clueWord.trim()} className="w-full">
+                      <div className="flex items-center gap-2">
+                        <span className="shrink-0 text-xs text-white/45">关联词数</span>
+                        <div className="flex flex-1 items-center gap-1">
+                          <button
+                            type="button"
+                            className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-white/12 bg-white/[0.05] text-lg leading-none transition hover:bg-white/12 active:scale-95 disabled:opacity-40"
+                            onClick={() => setClueCount((current) => Math.max(1, current - 1))}
+                            disabled={clueCount <= 1}
+                            aria-label="减少"
+                          >
+                            −
+                          </button>
+                          <input
+                            className="h-10 w-full min-w-0 rounded-md border border-white/12 bg-black/25 px-3 text-center text-sm font-bold outline-none transition focus:border-storm/70 focus:ring-2 focus:ring-storm/20"
+                            type="number"
+                            min={1}
+                            max={9}
+                            value={clueCount}
+                            onChange={(event) =>
+                              setClueCount(Math.max(1, Math.min(9, Math.round(Number(event.target.value) || 1))))
+                            }
+                            aria-label="关联词数"
+                          />
+                          <button
+                            type="button"
+                            className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-white/12 bg-white/[0.05] text-lg leading-none transition hover:bg-white/12 active:scale-95 disabled:opacity-40"
+                            onClick={() => setClueCount((current) => Math.min(9, current + 1))}
+                            disabled={clueCount >= 9}
+                            aria-label="增加"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      <Button type="submit" disabled={!clueWord.trim()} className="w-full">
                         提交线索
                       </Button>
-                    </div>
+                    </form>
                   ) : viewerCanGuess && game.phase === "guessing" ? (
                     <Button onClick={endCurrentTurn} disabled={game.guessesMadeThisTurn < 1} className="w-full">
                       结束回合
@@ -643,7 +717,7 @@ export function RoomClient({
                     ? "你是间谍：只能观看队友交流，不能发言"
                     : "只有本队队友（和旁观者）能看到这里的消息"}
               </p>
-              <div ref={chatListRef} className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+              <div ref={chatListRef} className="nice-scroll mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
                 {chatVisibleMessages.length === 0 ? (
                   <p className="text-xs text-white/40">还没有消息{canChat ? "，来和队友商量一下吧" : ""}。</p>
                 ) : (
@@ -661,7 +735,7 @@ export function RoomClient({
               {canChat ? (
                 <form onSubmit={sendChat} className="mt-3 flex gap-2">
                   <input
-                    className="h-9 min-w-0 flex-1 rounded-md border border-white/12 bg-black/25 px-3 text-sm"
+                    className="h-9 min-w-0 flex-1 rounded-md border border-white/12 bg-black/25 px-3 text-sm outline-none transition placeholder:text-white/35 focus:border-storm/70 focus:ring-2 focus:ring-storm/20"
                     value={chatInput}
                     maxLength={300}
                     onChange={(event) => setChatInput(event.target.value)}
@@ -718,7 +792,7 @@ export function RoomClient({
                 <ScrollText size={18} />
                 操作记录
               </h2>
-              <div className="mt-3 max-h-64 space-y-1.5 overflow-y-auto pr-1">
+              <div className="nice-scroll mt-3 max-h-64 space-y-1.5 overflow-y-auto pr-1">
                 {snapshot.recentEvents?.length ? (
                   snapshot.recentEvents.map((event) => {
                     const text = describeEvent(event, cardTextByPosition, game?.id ?? null);
@@ -784,8 +858,11 @@ export function RoomClient({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setConfirmRestart(false);
+            }}
           >
-            <div className="w-full max-w-sm rounded-xl border border-white/15 bg-panel p-6 shadow-2xl">
+            <div className="result-pop w-full max-w-sm rounded-xl border border-white/15 bg-panel p-6 shadow-2xl">
               <h3 className="text-xl font-black">重开一局？</h3>
               <p className="mt-2 text-sm text-white/60">当前对局进度将被清空，重新抽取 25 张密令牌。</p>
               <div className="mt-5 flex justify-end gap-2">
@@ -807,8 +884,11 @@ export function RoomClient({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setConfirmDisband(false);
+            }}
           >
-            <div className="w-full max-w-sm rounded-xl border border-ember/30 bg-panel p-6 shadow-2xl">
+            <div className="result-pop w-full max-w-sm rounded-xl border border-ember/30 bg-panel p-6 shadow-2xl">
               <h3 className="flex items-center gap-2 text-xl font-black text-ember">
                 <Trash2 size={20} /> 解散房间？
               </h3>

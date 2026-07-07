@@ -54,7 +54,7 @@ export function CategoryTree({
         </span>
         <span>{total} 条可用词</span>
       </div>
-      <div className="max-h-[48vh] space-y-2 overflow-auto pr-1">
+      <div className="nice-scroll max-h-[48vh] space-y-2 overflow-auto pr-1">
         {tree.map((archive) => {
           const archiveOpen = open[archive.id] ?? true;
           const categoryIds = archive.categories.map((category) => category.id);
