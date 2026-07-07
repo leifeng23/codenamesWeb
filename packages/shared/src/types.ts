@@ -106,6 +106,19 @@ export interface RoomSnapshot {
   };
 }
 
+/**
+ * 队内聊天消息（不落库，仅向在线成员广播）。
+ * 可见范围：发送者本队（含本队间谍）+ 旁观者；间谍与旁观者只读。
+ */
+export interface TeamChatMessage {
+  id: string;
+  team: TurnTeam;
+  userId: string;
+  username: string;
+  text: string;
+  at: string;
+}
+
 export type GuessOutcome = "correct" | "neutral" | "enemy" | "assassin";
 
 /** card:revealed 实时事件附带的额外字段（叠加在 RoomSnapshot 之上）。 */

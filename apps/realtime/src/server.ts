@@ -1,6 +1,8 @@
+import type { TeamChatMessage, TurnTeam } from "@cosmere/shared";
 import { createAdapter } from "@socket.io/redis-adapter";
-import { Redis } from "ioredis";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { Redis } from "ioredis";
 import { Server } from "socket.io";
 import { z } from "zod";
 import { readUserIdFromCookie } from "./auth";
@@ -56,6 +58,7 @@ const clueSchema = joinSchema.extend({
   clueCount: z.number().int().min(1).max(9)
 });
 const endTurnSchema = joinSchema.extend({ gameId: z.string() });
+const chatSchema = joinSchema.extend({ text: z.string().trim().min(1).max(300) });
 
 async function emitSnapshot(roomCode: string, event = "room:snapshot", extra?: Record<string, unknown>) {
   const sockets = await io.in(roomCode).fetchSockets();
@@ -221,6 +224,50 @@ io.on("connection", (socket) => {
       await emitSnapshot(input.roomCode, "turn:clueSubmitted");
     } catch (error) {
       socket.emit("error", { message: error instanceof Error ? error.message : "Clue failed" });
+    }
+  });
+
+  socket.on("chat:send", async (payload) => {
+    try {
+      const input = chatSchema.parse(payload);
+      const userId = socket.data.userId as string | undefined;
+      if (!userId) throw new Error("Unauthenticated");
+      // 轻量防刷屏：同一连接两条消息至少间隔 400ms（静默丢弃）
+      const now = Date.now();
+      const last = (socket.data.lastChatAt as number | undefined) ?? 0;
+      if (now - last < 400) return;
+      socket.data.lastChatAt = now;
+
+      const room = await prisma.room.findUnique({
+        where: { code: input.roomCode },
+        include: { members: { include: { user: { select: { id: true, username: true } } } } }
+      });
+      if (!room) throw new Error("Room not found");
+      const sender = room.members.find((member) => member.userId === userId);
+      if (!sender) throw new Error("Not a room member");
+      if (sender.team === "spectator") throw new Error("旁观者不能发言");
+      if (sender.canSpy) throw new Error("间谍只能观看队友交流，不能发言");
+
+      const message: TeamChatMessage = {
+        id: randomUUID(),
+        team: sender.team as TurnTeam,
+        userId,
+        username: sender.user.username,
+        text: input.text,
+        at: new Date().toISOString()
+      };
+      // 可见范围：发送者本队（含本队间谍）+ 旁观者；对方队伍不可见
+      const teamByUser = new Map(room.members.map((member) => [member.userId, member.team]));
+      const sockets = await io.in(input.roomCode).fetchSockets();
+      for (const target of sockets) {
+        const targetUserId = target.data.userId as string | undefined;
+        const targetTeam = targetUserId ? teamByUser.get(targetUserId) : undefined;
+        if (targetTeam === sender.team || targetTeam === "spectator") {
+          target.emit("chat:message", message);
+        }
+      }
+    } catch (error) {
+      socket.emit("error", { message: error instanceof Error ? error.message : "Chat failed" });
     }
   });
 

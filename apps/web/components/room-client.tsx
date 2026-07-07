@@ -8,6 +8,7 @@ import {
   type RoomEventSummary,
   type RoomSnapshot,
   type Team,
+  type TeamChatMessage,
   type TurnTeam
 } from "@cosmere/shared";
 import { AnimatePresence, motion } from "framer-motion";
@@ -15,8 +16,10 @@ import {
   ChevronDown,
   Crown,
   Eye,
+  MessageCircle,
   Radio,
   ScrollText,
+  Send,
   Settings,
   ShieldAlert,
   Sparkles,
@@ -150,6 +153,9 @@ export function RoomClient({
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [confirmDisband, setConfirmDisband] = useState(false);
   const [dismissedResultFor, setDismissedResultFor] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<TeamChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const chatListRef = useRef<HTMLDivElement | null>(null);
   const fxNonce = useRef(0);
   const { enabled, setEnabled, play } = useSound();
 
@@ -231,6 +237,9 @@ export function RoomClient({
       setFx(null);
       setSnapshot(next);
     });
+    client.on("chat:message", (message: TeamChatMessage) => {
+      setChatMessages((prev) => [...prev.slice(-99), message]);
+    });
     client.on("room:disbanded", () => {
       window.location.href = "/";
     });
@@ -306,6 +315,28 @@ export function RoomClient({
   function endCurrentTurn() {
     if (!socket || !game) return;
     socket.emit("turn:end", { roomCode, gameId: game.id });
+  }
+
+  // ===== 队伍聊天 =====
+  const viewerIsSpectator = !viewer || viewer.team === "spectator";
+  const canChat = !!viewer && (viewer.team === "red" || viewer.team === "blue") && !viewer.canSpy;
+  // 客户端也按当前队伍过滤一遍：切换队伍后不残留原队消息（旁观者看全部）
+  const chatVisibleMessages = useMemo(() => {
+    if (!viewer || viewer.team === "spectator") return chatMessages;
+    return chatMessages.filter((message) => message.team === viewer.team);
+  }, [chatMessages, viewer]);
+
+  useEffect(() => {
+    const list = chatListRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
+  }, [chatVisibleMessages.length]);
+
+  function sendChat(event: React.FormEvent) {
+    event.preventDefault();
+    const text = chatInput.trim();
+    if (!socket || !text || !canChat) return;
+    socket.emit("chat:send", { roomCode, text });
+    setChatInput("");
   }
 
   const confetti = useMemo(() => {
@@ -597,6 +628,49 @@ export function RoomClient({
                     </p>
                   )}
                 </div>
+              ) : null}
+            </Panel>
+
+            <Panel>
+              <h2 className="flex items-center gap-2 text-lg font-bold">
+                <MessageCircle size={18} />
+                队伍聊天
+              </h2>
+              <p className="mt-1 text-xs text-white/40">
+                {viewerIsSpectator
+                  ? "旁观模式：可同时围观两队讨论"
+                  : viewer?.canSpy
+                    ? "你是间谍：只能观看队友交流，不能发言"
+                    : "只有本队队友（和旁观者）能看到这里的消息"}
+              </p>
+              <div ref={chatListRef} className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+                {chatVisibleMessages.length === 0 ? (
+                  <p className="text-xs text-white/40">还没有消息{canChat ? "，来和队友商量一下吧" : ""}。</p>
+                ) : (
+                  chatVisibleMessages.map((message) => (
+                    <div key={message.id} className="text-xs leading-relaxed">
+                      <span className={cn("font-semibold", message.team === "red" ? "text-ember" : "text-storm")}>
+                        {message.username}
+                      </span>
+                      <span className="ml-1.5 tabular-nums text-white/30">{formatEventTime(message.at)}</span>
+                      <p className="break-words text-[13px] text-white/80">{message.text}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+              {canChat ? (
+                <form onSubmit={sendChat} className="mt-3 flex gap-2">
+                  <input
+                    className="h-9 min-w-0 flex-1 rounded-md border border-white/12 bg-black/25 px-3 text-sm"
+                    value={chatInput}
+                    maxLength={300}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    placeholder="和队友商量…"
+                  />
+                  <Button type="submit" disabled={!chatInput.trim()} className="px-3" aria-label="发送">
+                    <Send size={16} />
+                  </Button>
+                </form>
               ) : null}
             </Panel>
 
