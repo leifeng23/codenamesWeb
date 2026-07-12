@@ -109,6 +109,18 @@ export function WordsAdmin({
     if (!stillExists) setActiveCategoryId(nextArchives[0]?.categories[0]?.id ?? "");
   }
 
+  /** 本地更新分类的启用词条计数：避免每次增删/启停都再拉一遍整棵题库树。 */
+  function bumpCount(categoryId: string, delta: number) {
+    setArchives((current) =>
+      current.map((archive) => ({
+        ...archive,
+        categories: archive.categories.map((category) =>
+          category.id === categoryId ? { ...category, count: Math.max(0, category.count + delta) } : category
+        )
+      }))
+    );
+  }
+
   // ---------- 一级仓库 ----------
   async function createArchive(name: string) {
     const response = await fetch("/api/admin/archives", {
@@ -246,7 +258,7 @@ export function WordsAdmin({
       setWords((current) => [data, ...current]);
       setNewWordCn("");
       setNewWordNote("");
-      await refreshArchives();
+      bumpCount(activeCategory.id, 1);
     } finally {
       setCreating(false);
     }
@@ -257,6 +269,7 @@ export function WordsAdmin({
     patch: Partial<Pick<WordRow, "textCn" | "textEnOrNote" | "enabled" | "wordCategoryId">>,
     options: { silent?: boolean } = {}
   ) {
+    const before = words.find((word) => word.id === id);
     const response = await fetch("/api/admin/words", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -269,8 +282,30 @@ export function WordsAdmin({
     }
     if (!options.silent) toast.ok("词条已保存");
     setWords((current) => current.map((word) => (word.id === id ? updated : word)));
-    if (patch.wordCategoryId) await refreshArchives();
+    // 移动分类：本地调整两侧计数，无需重拉题库树
+    if (patch.wordCategoryId && before && before.enabled && before.wordCategoryId !== patch.wordCategoryId) {
+      bumpCount(before.wordCategoryId, -1);
+      bumpCount(patch.wordCategoryId, 1);
+    }
     return true;
+  }
+
+  /** 启停切换走乐观更新：先改本地状态，失败再回滚。 */
+  async function toggleEnabled(word: WordRow) {
+    const next = !word.enabled;
+    setWords((current) => current.map((item) => (item.id === word.id ? { ...item, enabled: next } : item)));
+    bumpCount(word.wordCategoryId, next ? 1 : -1);
+    const response = await fetch("/api/admin/words", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: word.id, enabled: next })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      toast.err(data.error ?? "保存失败");
+      setWords((current) => current.map((item) => (item.id === word.id ? { ...item, enabled: word.enabled } : item)));
+      bumpCount(word.wordCategoryId, next ? -1 : 1);
+    }
   }
 
   function askDeleteWord(word: WordRow) {
@@ -296,7 +331,7 @@ export function WordsAdmin({
           next.delete(word.id);
           return next;
         });
-        await refreshArchives();
+        if (word.enabled) bumpCount(word.wordCategoryId, -1);
       }
     });
   }
@@ -348,7 +383,8 @@ export function WordsAdmin({
       setWords((current) => current.map((word) => updatedById.get(word.id) ?? word));
       if (failed > 0) toast.err(`成功 ${updatedById.size} 条，失败 ${failed} 条`);
       else toast.ok(`已更新 ${updatedById.size} 条词条`);
-      if (patch.wordCategoryId) await refreshArchives();
+      // 批量操作后后台静默刷新计数，不阻塞界面
+      void refreshArchives();
       setSelectedIds(new Set());
     } finally {
       setBulkPending(false);
@@ -385,7 +421,7 @@ export function WordsAdmin({
           setSelectedIds(new Set());
           if (failed > 0) toast.err(`已删除 ${deleted.size} 条，${failed} 条删除失败（可能曾用于对局）`);
           else toast.ok(`已删除 ${deleted.size} 条词条`);
-          await refreshArchives();
+          void refreshArchives();
         } finally {
           setBulkPending(false);
         }
@@ -619,7 +655,7 @@ export function WordsAdmin({
                     </td>
                     <td className="px-3 py-2.5">
                       <button
-                        onClick={() => patchWord(word.id, { enabled: !word.enabled }, { silent: true })}
+                        onClick={() => toggleEnabled(word)}
                         className={cn(
                           "rounded-full px-2.5 py-1 text-xs font-semibold transition",
                           word.enabled ? "bg-storm/20 text-storm" : "bg-white/5 text-white/40"

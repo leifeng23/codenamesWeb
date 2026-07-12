@@ -10,7 +10,7 @@ import {
   type TeamChatMessage,
   type TurnTeam
 } from "@cosmere/shared";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { useSound } from "../sound-provider";
 import { ConfirmDialog } from "../ui/confirm-dialog";
@@ -40,7 +40,6 @@ export function RoomClient({
   realtimeUrl: string;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
-  const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [roomCategoryIds, setRoomCategoryIds] = useState<string[]>(initialSnapshot.selectedCategoryIds);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -51,6 +50,10 @@ export function RoomClient({
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [dismissedResultFor, setDismissedResultFor] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<TeamChatMessage[]>([]);
+  // 等待服务器响应的即时反馈：让每次点击立刻有视觉回应，弱化网络往返的延迟感
+  const [pendingCardId, setPendingCardId] = useState<string | null>(null);
+  const [actionPending, setActionPending] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
   const fxNonce = useRef(0);
   const { enabled, setEnabled, play } = useSound();
   const toast = useToast();
@@ -58,6 +61,13 @@ export function RoomClient({
   const viewer = snapshot.members.find((member) => member.userId === userId);
   const viewerCanSubmitClue = viewer && snapshot.game ? canSubmitClue(viewer, snapshot.game.turnTeam) : false;
   const viewerCanGuess = viewer && snapshot.game ? canGuess(viewer, snapshot.game.turnTeam) : false;
+
+  const game = snapshot.game;
+  // 供稳定回调读取最新状态（避免每次快照都生成新回调、连带 25 张卡牌全部重渲染）
+  const gameRef = useRef(game);
+  gameRef.current = game;
+  const viewerCanGuessRef = useRef(viewerCanGuess);
+  viewerCanGuessRef.current = viewerCanGuess;
 
   useEffect(() => {
     setRoomCategoryIds(snapshot.selectedCategoryIds);
@@ -99,32 +109,44 @@ export function RoomClient({
   }
 
   useEffect(() => {
-    const client = io(realtimeUrl, { transports: ["websocket", "polling"] });
-    setSocket(client);
+    // withCredentials：跨源部署（realtime 独立域名/端口）时轮询兜底也能带上会话 cookie
+    const client = io(realtimeUrl, { transports: ["websocket", "polling"], withCredentials: true });
+    socketRef.current = client;
+
+    // 任何服务器消息到达都意味着一次往返完成，清掉等待态
+    const settle = () => {
+      setPendingCardId(null);
+      setActionPending(false);
+    };
+    const applySnapshot = (next: RoomSnapshot) => {
+      settle();
+      setSnapshot(next);
+    };
+
     client.on("connect", () => {
       setConnected(true);
       client.emit("room:join", { roomCode });
     });
     client.on("disconnect", () => setConnected(false));
-    client.on("room:snapshot", (next: RoomSnapshot) => setSnapshot(next));
-    client.on("member:changed", (next: RoomSnapshot) => setSnapshot(next));
-    client.on("turn:clueSubmitted", (next: RoomSnapshot) => setSnapshot(next));
-    client.on("turn:ended", (next: RoomSnapshot) => setSnapshot(next));
+    client.on("room:snapshot", applySnapshot);
+    client.on("member:changed", applySnapshot);
+    client.on("turn:clueSubmitted", applySnapshot);
+    client.on("turn:ended", applySnapshot);
     client.on(
       "card:revealed",
       (next: RoomSnapshot & { revealedCardId?: string; outcome?: GuessOutcome }) => {
-        setSnapshot(next);
+        applySnapshot(next);
         triggerRevealFx(next);
       }
     );
     client.on("game:ended", (next: RoomSnapshot & { winnerTeam?: TurnTeam | null }) => {
-      setSnapshot(next);
+      applySnapshot(next);
       if (next.winnerTeam) setTimeout(() => play("win"), 420);
     });
     client.on("game:started", (next: RoomSnapshot) => {
       play("start");
       setFx(null);
-      setSnapshot(next);
+      applySnapshot(next);
     });
     client.on("chat:message", (message: TeamChatMessage) => {
       setChatMessages((prev) => [...prev.slice(-99), message]);
@@ -132,8 +154,14 @@ export function RoomClient({
     client.on("room:disbanded", () => {
       window.location.href = "/";
     });
-    client.on("error", (next: { message?: string }) => toast.err(next.message ?? "操作失败"));
+    client.on("error", (next: { message?: string }) => {
+      settle();
+      toast.err(next.message ?? "操作失败");
+      // 操作被拒绝时服务器不会推快照，重新 join 拉一份权威状态，纠正乐观更新
+      client.emit("room:join", { roomCode });
+    });
     return () => {
+      socketRef.current = null;
       client.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -144,7 +172,6 @@ export function RoomClient({
     () => new Map(visibleCards.map((card) => [card.position, card.textCn])),
     [visibleCards]
   );
-  const game = snapshot.game;
   const isFinished = game?.phase === "finished";
   const winnerTeam = game?.winnerTeam ?? null;
   const finishReason =
@@ -152,57 +179,84 @@ export function RoomClient({
   const showResult = Boolean(isFinished && winnerTeam && dismissedResultFor !== game?.id);
 
   function startGame() {
-    if (!socket) return;
+    if (!socketRef.current) return;
     if (game && !isFinished) {
       setConfirmRestart(true);
       return;
     }
     play("click");
-    socket.emit("game:start", { roomCode });
+    socketRef.current.emit("game:start", { roomCode });
   }
 
   function confirmRestartGame() {
     setConfirmRestart(false);
     play("click");
-    socket?.emit("game:start", { roomCode });
+    socketRef.current?.emit("game:start", { roomCode });
   }
 
   function disbandRoom() {
-    socket?.emit("room:disband", { roomCode });
+    socketRef.current?.emit("room:disband", { roomCode });
   }
 
-  function reveal(cardId: string) {
-    if (!socket || !game) return;
-    if (game.phase !== "guessing") {
-      toast.err("请等待本队间谍提交线索后再翻牌");
-      return;
-    }
-    if (!viewerCanGuess) {
-      toast.err("只有当前队伍的普通队员可以翻牌");
-      return;
-    }
-    play("click");
-    socket.emit("card:reveal", { roomCode, gameId: game.id, cardId });
-  }
+  const reveal = useCallback(
+    (cardId: string) => {
+      const socket = socketRef.current;
+      const currentGame = gameRef.current;
+      if (!socket || !currentGame) return;
+      if (currentGame.phase !== "guessing") {
+        toast.err("请等待本队间谍提交线索后再翻牌");
+        return;
+      }
+      if (!viewerCanGuessRef.current) {
+        toast.err("只有当前队伍的普通队员可以翻牌");
+        return;
+      }
+      play("click");
+      setPendingCardId(cardId);
+      socket.emit("card:reveal", { roomCode, gameId: currentGame.id, cardId });
+    },
+    [play, roomCode, toast]
+  );
 
-  function assignRole(targetUserId: string, team: Team, canSpy: boolean) {
-    socket?.emit("member:assignRole", { roomCode, targetUserId, team, canSpy });
-  }
+  const assignRole = useCallback(
+    (targetUserId: string, team: Team, canSpy: boolean) => {
+      // 乐观更新：立即反映到成员列表，若服务器拒绝会通过 error→re-join 纠正
+      setSnapshot((prev) => ({
+        ...prev,
+        members: prev.members.map((member) =>
+          member.userId === targetUserId
+            ? { ...member, team, canSpy: team === "spectator" ? false : canSpy }
+            : member
+        )
+      }));
+      socketRef.current?.emit("member:assignRole", { roomCode, targetUserId, team, canSpy });
+    },
+    [roomCode]
+  );
 
   function updateCategories() {
-    socket?.emit("room:updateCategories", { roomCode, categoryIds: roomCategoryIds });
+    socketRef.current?.emit("room:updateCategories", { roomCode, categoryIds: roomCategoryIds });
   }
 
-  function submitTurnClue(word: string, count: number) {
-    if (!socket || !game) return;
-    const safeCount = Math.max(1, Math.min(9, Math.round(count) || 1));
-    socket.emit("turn:submitClue", { roomCode, gameId: game.id, clueWord: word, clueCount: safeCount });
-  }
+  const submitTurnClue = useCallback(
+    (word: string, count: number) => {
+      const socket = socketRef.current;
+      const currentGame = gameRef.current;
+      if (!socket || !currentGame) return;
+      const safeCount = Math.max(1, Math.min(9, Math.round(count) || 1));
+      setActionPending(true);
+      socket.emit("turn:submitClue", { roomCode, gameId: currentGame.id, clueWord: word, clueCount: safeCount });
+    },
+    [roomCode]
+  );
 
-  function endCurrentTurn() {
-    if (!socket || !game) return;
-    socket.emit("turn:end", { roomCode, gameId: game.id });
-  }
+  const endCurrentTurn = useCallback(() => {
+    const socket = socketRef.current;
+    const currentGame = gameRef.current;
+    if (!socket || !currentGame) return;
+    setActionPending(true);
+    socket.emit("turn:end", { roomCode, gameId: currentGame.id });
+  }, [roomCode]);
 
   // ===== 队伍聊天 =====
   const viewerIsSpectator = !viewer || viewer.team === "spectator";
@@ -218,10 +272,12 @@ export function RoomClient({
     return chatMessages.filter((message) => message.team === viewer.team);
   }, [chatMessages, viewer]);
 
-  function sendChat(text: string) {
-    if (!socket || !canChat) return;
-    socket.emit("chat:send", { roomCode, text });
-  }
+  const sendChat = useCallback(
+    (text: string) => {
+      socketRef.current?.emit("chat:send", { roomCode, text });
+    },
+    [roomCode]
+  );
 
   return (
     <div className="relative">
@@ -249,6 +305,7 @@ export function RoomClient({
               game={game}
               cards={visibleCards}
               fx={fx}
+              pendingCardId={pendingCardId}
               viewerCanGuess={viewerCanGuess}
               onReveal={reveal}
             />
@@ -257,6 +314,7 @@ export function RoomClient({
               game={game}
               viewerCanSubmitClue={viewerCanSubmitClue}
               viewerCanGuess={viewerCanGuess}
+              pending={actionPending}
               onSubmitClue={submitTurnClue}
               onEndTurn={endCurrentTurn}
             />

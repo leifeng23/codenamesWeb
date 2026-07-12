@@ -5,7 +5,9 @@
 {$SITE_DOMAIN} {
 	encode zstd gzip
 
-	handle_path /socket.io/* {
+	# 注意用 handle 而非 handle_path：socket.io 服务端按 /socket.io/ 前缀路由，
+	# handle_path 会剥掉前缀导致握手 404、WebSocket 退化为轮询甚至连不上
+	handle /socket.io/* {
 		reverse_proxy realtime:4001
 	}
 

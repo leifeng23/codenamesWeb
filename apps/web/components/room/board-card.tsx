@@ -3,22 +3,24 @@
 import type { Faction, PublicCard } from "@cosmere/shared";
 import { motion } from "framer-motion";
 import { ShieldAlert } from "lucide-react";
+import { memo } from "react";
 import { cn } from "../../lib/utils";
 import { backFactionClass, hintFactionClass } from "./labels";
 import type { ActiveFx } from "./reveal-fx";
 
-export function BoardCard({
+function BoardCardInner({
   card,
   actionable,
-  fx,
+  cardFx,
+  pending,
   onReveal
 }: {
   card: PublicCard;
   actionable: boolean;
-  fx: ActiveFx | null;
+  cardFx: ActiveFx | null;
+  pending: boolean;
   onReveal: (cardId: string) => void;
 }) {
-  const cardFx = fx?.cardId === card.id ? fx : null;
   const fxAnimClass = cardFx
     ? cardFx.outcome === "correct"
       ? "fx-correct"
@@ -35,16 +37,19 @@ export function BoardCard({
       data-card-id={card.id}
       disabled={card.revealed}
       aria-label={card.revealed ? `已翻开：${card.textCn}` : `翻开「${card.textCn}」`}
+      aria-busy={pending}
       onClick={() => {
-        if (!card.revealed) onReveal(card.id);
+        if (!card.revealed && !pending) onReveal(card.id);
       }}
       className={cn(
         "card-tile relative aspect-[0.92] select-none rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-storm/60 sm:aspect-[1.18] sm:rounded-xl",
         !card.revealed && "card-idle",
         actionable ? "cursor-pointer" : "cursor-default",
+        // 等待服务器确认：立即给出脉冲光圈反馈，避免高延迟下点击后毫无动静
+        pending && "animate-pulse ring-2 ring-storm/70",
         fxAnimClass
       )}
-      whileHover={actionable ? { y: -4, scale: 1.02 } : undefined}
+      whileHover={actionable && !pending ? { y: -4, scale: 1.02 } : undefined}
       whileTap={!card.revealed ? { scale: 0.97 } : undefined}
     >
       <motion.div
@@ -90,3 +95,22 @@ export function BoardCard({
     </motion.button>
   );
 }
+
+/**
+ * 每次快照都会生成全新的 card 对象，25 张卡牌默认会整板重渲染；
+ * 按内容做浅比较，只有状态真正变化的卡牌才重渲染（低配设备上明显更顺）。
+ */
+export const BoardCard = memo(
+  BoardCardInner,
+  (prev, next) =>
+    prev.actionable === next.actionable &&
+    prev.pending === next.pending &&
+    prev.cardFx === next.cardFx &&
+    prev.onReveal === next.onReveal &&
+    prev.card.id === next.card.id &&
+    prev.card.revealed === next.card.revealed &&
+    prev.card.faction === next.card.faction &&
+    prev.card.textCn === next.card.textCn &&
+    prev.card.textEnOrNote === next.card.textEnOrNote &&
+    prev.card.position === next.card.position
+);

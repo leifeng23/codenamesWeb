@@ -13,12 +13,14 @@ export function GameBoard({
   game,
   cards,
   fx,
+  pendingCardId,
   viewerCanGuess,
   onReveal
 }: {
   game: Game | null;
   cards: PublicCard[];
   fx: ActiveFx | null;
+  pendingCardId: string | null;
   viewerCanGuess: boolean;
   onReveal: (cardId: string) => void;
 }) {
@@ -64,7 +66,8 @@ export function GameBoard({
                   key={card.id}
                   card={card}
                   actionable={!card.revealed && viewerCanGuess && game?.phase === "guessing"}
-                  fx={fx}
+                  cardFx={fx?.cardId === card.id ? fx : null}
+                  pending={pendingCardId === card.id && !card.revealed}
                   onReveal={onReveal}
                 />
               ))
