@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { RoomClient } from "../../../components/room-client";
+import { RoomClient } from "../../../components/room/room-client";
 import { Starfield } from "../../../components/starfield";
 import { SoundProvider } from "../../../components/sound-provider";
 import { currentUser } from "../../../lib/auth";
