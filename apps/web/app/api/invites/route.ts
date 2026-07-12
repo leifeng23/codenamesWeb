@@ -8,6 +8,24 @@ const schema = z.object({
   expiresAt: z.string().datetime().optional()
 });
 
+const inviteInclude = {
+  createdBy: { select: { username: true } },
+  usedBy: { select: { username: true } }
+} as const;
+
+export async function GET() {
+  try {
+    await requireAdmin();
+    const invites = await prisma.inviteCode.findMany({
+      orderBy: { createdAt: "desc" },
+      include: inviteInclude
+    });
+    return ok({ invites });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const user = await requireAdmin();
@@ -17,7 +35,8 @@ export async function POST(request: Request) {
         code: randomBytes(5).toString("hex").toUpperCase(),
         createdById: user.id,
         expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
-      }
+      },
+      include: inviteInclude
     });
     return ok(invite, { status: 201 });
   } catch (error) {

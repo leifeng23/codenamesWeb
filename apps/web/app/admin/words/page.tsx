@@ -1,6 +1,4 @@
-import Link from "next/link";
 import { WordsAdmin } from "../../../components/words-admin";
-import { Starfield } from "../../../components/starfield";
 import { requireWordEditor } from "../../../lib/auth";
 import { buildCategoryTree } from "../../../lib/game-state";
 import { prisma } from "../../../lib/prisma";
@@ -31,29 +29,13 @@ export default async function WordsAdminPage() {
   ]);
 
   return (
-    <main className="min-h-screen px-4 py-8">
-      <Starfield />
-      <div className="mx-auto max-w-7xl">
-        <div className="flex flex-wrap gap-3 text-sm">
-          <Link href="/" className="text-storm hover:text-white">
-            返回行动台
-          </Link>
-          {user.role === "ADMIN" ? (
-            <Link href="/admin/users" className="text-white/55 hover:text-white">
-              用户权限
-            </Link>
-          ) : null}
-        </div>
-        <div className="mt-4">
-          <p className="text-xs uppercase tracking-[0.3em] text-brass">Admin Console</p>
-          <h1 className="mt-2 text-4xl font-black">题库后台</h1>
-        </div>
-        <WordsAdmin
-          initialArchives={categoryTree}
-          initialWords={JSON.parse(JSON.stringify(words))}
-          isTopAdmin={user.role === "ADMIN"}
-        />
-      </div>
-    </main>
+    <div>
+      <h1 className="text-3xl font-black md:text-4xl">题库后台</h1>
+      <WordsAdmin
+        initialArchives={categoryTree}
+        initialWords={JSON.parse(JSON.stringify(words))}
+        isTopAdmin={user.role === "ADMIN"}
+      />
+    </div>
   );
 }

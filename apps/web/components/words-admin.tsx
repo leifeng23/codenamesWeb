@@ -1,21 +1,17 @@
 "use client";
 
 import type { WordArchiveNode } from "@cosmere/shared";
-import {
-  ChevronDown,
-  Download,
-  FileText,
-  FolderOpen,
-  Plus,
-  Save,
-  Search,
-  Trash2,
-  Upload
-} from "lucide-react";
+import { Download, Save, Search, Trash2, Upload, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { ArchiveTree } from "./admin/archive-tree";
+import { ImportDialog } from "./admin/import-dialog";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { ConfirmDialog } from "./ui/confirm-dialog";
 import { Input } from "./ui/input";
 import { Panel } from "./ui/panel";
+import { Spinner } from "./ui/spinner";
+import { useToast } from "./ui/toast";
 import { cn } from "../lib/utils";
 
 interface WordRow {
@@ -44,6 +40,7 @@ function allCategories(archives: WordArchiveNode[]) {
   return archives.flatMap((archive) => archive.categories);
 }
 
+// 当前全量词条在客户端过滤已足够；如词库超过约 1 万条，再考虑服务端分页。
 export function WordsAdmin({
   initialArchives,
   initialWords,
@@ -57,16 +54,18 @@ export function WordsAdmin({
   const [words, setWords] = useState(initialWords);
   const [activeCategoryId, setActiveCategoryId] = useState(initialArchives[0]?.categories[0]?.id ?? "");
   const [query, setQuery] = useState("");
-  const [newArchiveName, setNewArchiveName] = useState("");
-  const [newCategoryArchiveId, setNewCategoryArchiveId] = useState(initialArchives[0]?.id ?? "");
-  const [newCategoryName, setNewCategoryName] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkPending, setBulkPending] = useState(false);
+  const [bulkMoveTarget, setBulkMoveTarget] = useState("");
+  const [creating, setCreating] = useState(false);
   const [newWordCn, setNewWordCn] = useState("");
   const [newWordNote, setNewWordNote] = useState("");
-  const [importOpen, setImportOpen] = useState(false);
-  const [importArchiveNames, setImportArchiveNames] = useState<string[]>(() => initialArchives.map((a) => a.name));
-  const [message, setMessage] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [confirmPending, setConfirmPending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
 
   const categories = useMemo(() => allCategories(archives), [archives]);
   const activeCategory = categories.find((category) => category.id === activeCategoryId) ?? categories[0];
@@ -80,14 +79,18 @@ export function WordsAdmin({
     return new Set([...seen.entries()].filter(([, count]) => count > 1).map(([key]) => key));
   }, [words]);
 
-  const filtered = words.filter((word) => {
-    const haystack = `${word.textCn} ${word.textEnOrNote}`.toLowerCase();
-    return word.wordCategoryId === activeCategory?.id && haystack.includes(query.toLowerCase());
-  });
+  // 搜索为空 → 浏览当前分类；有关键词 → 全局跨分类搜索
+  const globalSearch = query.trim().length > 0;
+  const filtered = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    return words.filter((word) => {
+      if (!globalSearch) return word.wordCategoryId === activeCategory?.id;
+      return `${word.textCn} ${word.textEnOrNote}`.toLowerCase().includes(keyword);
+    });
+  }, [words, query, globalSearch, activeCategory?.id]);
 
-  function notify(ok: boolean, text: string) {
-    setMessage({ tone: ok ? "ok" : "err", text });
-  }
+  const filteredIds = useMemo(() => filtered.map((word) => word.id), [filtered]);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((word) => selectedIds.has(word.id));
 
   async function refreshWords() {
     const response = await fetch("/api/admin/words");
@@ -107,20 +110,20 @@ export function WordsAdmin({
   }
 
   // ---------- 一级仓库 ----------
-  async function createArchive() {
-    const name = newArchiveName.trim();
-    if (!name) return;
+  async function createArchive(name: string) {
     const response = await fetch("/api/admin/archives", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name })
     });
     const data = await response.json();
-    notify(response.ok, response.ok ? `已创建仓库「${name}」` : data.error ?? "创建失败");
-    if (response.ok) {
-      setNewArchiveName("");
-      setArchives(data.archives);
+    if (!response.ok) {
+      toast.err(data.error ?? "创建失败");
+      return false;
     }
+    toast.ok(`已创建仓库「${name}」`);
+    setArchives(data.archives);
+    return true;
   }
 
   async function renameArchive(id: string, name: string) {
@@ -130,8 +133,11 @@ export function WordsAdmin({
       body: JSON.stringify({ id, name })
     });
     const data = await response.json();
-    notify(response.ok, response.ok ? "仓库已保存" : data.error ?? "保存失败");
-    if (response.ok) setArchives(data.archives);
+    if (!response.ok) {
+      toast.err(data.error ?? "保存失败");
+      return;
+    }
+    setArchives(data.archives);
   }
 
   function askDeleteArchive(archive: WordArchiveNode) {
@@ -147,32 +153,33 @@ export function WordsAdmin({
           body: JSON.stringify({ id: archive.id })
         });
         const data = await response.json();
-        notify(response.ok, response.ok ? "仓库已删除" : data.error ?? "删除失败");
-        if (response.ok) {
-          setArchives(data.archives);
-          ensureActiveValid(data.archives);
-          await refreshWords();
+        if (!response.ok) {
+          toast.err(data.error ?? "删除失败");
+          return;
         }
+        toast.ok("仓库已删除");
+        setArchives(data.archives);
+        ensureActiveValid(data.archives);
+        await refreshWords();
       }
     });
   }
 
   // ---------- 二级分类 ----------
-  async function createCategory() {
-    const archiveId = newCategoryArchiveId || archives[0]?.id;
-    const name = newCategoryName.trim();
-    if (!archiveId || !name) return;
+  async function createCategory(archiveId: string, name: string) {
     const response = await fetch("/api/admin/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archiveId, name })
     });
     const data = await response.json();
-    notify(response.ok, response.ok ? `已创建分类「${name}」` : data.error ?? "创建失败");
-    if (response.ok) {
-      setNewCategoryName("");
-      setArchives(data.archives);
+    if (!response.ok) {
+      toast.err(data.error ?? "创建失败");
+      return false;
     }
+    toast.ok(`已创建分类「${name}」`);
+    setArchives(data.archives);
+    return true;
   }
 
   async function renameCategory(id: string, name: string) {
@@ -182,8 +189,11 @@ export function WordsAdmin({
       body: JSON.stringify({ id, name })
     });
     const data = await response.json();
-    notify(response.ok, response.ok ? "分类已保存" : data.error ?? "保存失败");
-    if (response.ok) setArchives(data.archives);
+    if (!response.ok) {
+      toast.err(data.error ?? "保存失败");
+      return;
+    }
+    setArchives(data.archives);
   }
 
   function askDeleteCategory(archiveName: string, category: { id: string; name: string; count: number }) {
@@ -198,53 +208,69 @@ export function WordsAdmin({
           body: JSON.stringify({ id: category.id })
         });
         const data = await response.json();
-        notify(response.ok, response.ok ? "分类已删除" : data.error ?? "删除失败");
-        if (response.ok) {
-          setArchives(data.archives);
-          ensureActiveValid(data.archives);
-          await refreshWords();
+        if (!response.ok) {
+          toast.err(data.error ?? "删除失败");
+          return;
         }
+        toast.ok("分类已删除");
+        setArchives(data.archives);
+        ensureActiveValid(data.archives);
+        await refreshWords();
       }
     });
   }
 
   // ---------- 词条 ----------
   async function createWord() {
-    if (!activeCategory) return;
+    if (!activeCategory || creating) return;
     const textCn = newWordCn.trim();
     if (!textCn) return;
-    const response = await fetch("/api/admin/words", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        wordCategoryId: activeCategory.id,
-        textCn,
-        textEnOrNote: newWordNote.trim(),
-        enabled: true
-      })
-    });
-    const data = await response.json();
-    notify(response.ok, response.ok ? "词条已新增" : data.error ?? "新增失败");
-    if (response.ok) {
+    setCreating(true);
+    try {
+      const response = await fetch("/api/admin/words", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wordCategoryId: activeCategory.id,
+          textCn,
+          textEnOrNote: newWordNote.trim(),
+          enabled: true
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        toast.err(data.error ?? "新增失败");
+        return;
+      }
+      toast.ok(`已新增「${textCn}」`);
       setWords((current) => [data, ...current]);
       setNewWordCn("");
       setNewWordNote("");
       await refreshArchives();
+    } finally {
+      setCreating(false);
     }
   }
 
-  async function patchWord(id: string, patch: Partial<Pick<WordRow, "textCn" | "textEnOrNote" | "enabled" | "wordCategoryId">>) {
+  async function patchWord(
+    id: string,
+    patch: Partial<Pick<WordRow, "textCn" | "textEnOrNote" | "enabled" | "wordCategoryId">>,
+    options: { silent?: boolean } = {}
+  ) {
     const response = await fetch("/api/admin/words", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...patch })
     });
     const updated = await response.json();
-    notify(response.ok, response.ok ? "词条已保存" : updated.error ?? "保存失败");
-    if (response.ok) {
-      setWords((current) => current.map((word) => (word.id === id ? updated : word)));
-      if (patch.wordCategoryId) await refreshArchives();
+    if (!response.ok) {
+      toast.err(updated.error ?? "保存失败");
+      return false;
     }
+    if (!options.silent) toast.ok("词条已保存");
+    setWords((current) => current.map((word) => (word.id === id ? updated : word)));
+    if (patch.wordCategoryId) await refreshArchives();
+    return true;
   }
 
   function askDeleteWord(word: WordRow) {
@@ -259,162 +285,182 @@ export function WordsAdmin({
           body: JSON.stringify({ id: word.id })
         });
         const data = await response.json();
-        notify(response.ok, response.ok ? "词条已删除" : data.error ?? "删除失败");
-        if (response.ok) {
-          setWords((current) => current.filter((item) => item.id !== word.id));
+        if (!response.ok) {
+          toast.err(data.error ?? "删除失败");
+          return;
+        }
+        toast.ok("词条已删除");
+        setWords((current) => current.filter((item) => item.id !== word.id));
+        setSelectedIds((current) => {
+          const next = new Set(current);
+          next.delete(word.id);
+          return next;
+        });
+        await refreshArchives();
+      }
+    });
+  }
+
+  // ---------- 批量操作 ----------
+  function toggleSelectAll() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allFilteredSelected) {
+        for (const id of filteredIds) next.delete(id);
+      } else {
+        for (const id of filteredIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkPatch(patch: { enabled?: boolean; wordCategoryId?: string }) {
+    if (bulkPending || selectedIds.size === 0) return;
+    setBulkPending(true);
+    try {
+      const ids = [...selectedIds];
+      const results = await Promise.allSettled(
+        ids.map(async (id) => {
+          const response = await fetch("/api/admin/words", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, ...patch })
+          });
+          if (!response.ok) throw new Error();
+          return response.json();
+        })
+      );
+      const updatedById = new Map<string, WordRow>();
+      let failed = 0;
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") updatedById.set(ids[index], result.value as WordRow);
+        else failed += 1;
+      });
+      setWords((current) => current.map((word) => updatedById.get(word.id) ?? word));
+      if (failed > 0) toast.err(`成功 ${updatedById.size} 条，失败 ${failed} 条`);
+      else toast.ok(`已更新 ${updatedById.size} 条词条`);
+      if (patch.wordCategoryId) await refreshArchives();
+      setSelectedIds(new Set());
+    } finally {
+      setBulkPending(false);
+      setBulkMoveTarget("");
+    }
+  }
+
+  function askBulkDelete() {
+    const count = selectedIds.size;
+    setConfirm({
+      title: `批量删除 ${count} 条词条`,
+      body: "将永久删除所选词条，无法恢复。曾用于对局的词条会删除失败，请改为「停用」。",
+      confirmLabel: `删除 ${count} 条`,
+      run: async () => {
+        setBulkPending(true);
+        try {
+          const ids = [...selectedIds];
+          const results = await Promise.allSettled(
+            ids.map(async (id) => {
+              const response = await fetch("/api/admin/words", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id })
+              });
+              if (!response.ok) throw new Error();
+              return id;
+            })
+          );
+          const deleted = new Set(
+            results.filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled").map((r) => r.value)
+          );
+          const failed = ids.length - deleted.size;
+          setWords((current) => current.filter((word) => !deleted.has(word.id)));
+          setSelectedIds(new Set());
+          if (failed > 0) toast.err(`已删除 ${deleted.size} 条，${failed} 条删除失败（可能曾用于对局）`);
+          else toast.ok(`已删除 ${deleted.size} 条词条`);
           await refreshArchives();
+        } finally {
+          setBulkPending(false);
         }
       }
     });
   }
 
-  async function importExcel(file: File) {
-    const formData = new FormData();
-    formData.set("file", file);
-    for (const archiveName of importArchiveNames) formData.append("archiveNames", archiveName);
-    const response = await fetch("/api/admin/words/import-excel", { method: "POST", body: formData });
-    const data = await response.json();
-    notify(response.ok, response.ok ? `已导入 ${data.imported} 条` : data.error ?? "导入失败");
-    if (response.ok) window.location.reload();
+  // ---------- Excel 导入 ----------
+  async function importExcel(archiveNames: string[]) {
+    if (!pendingImportFile || importing) return;
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.set("file", pendingImportFile);
+      for (const archiveName of archiveNames) formData.append("archiveNames", archiveName);
+      const response = await fetch("/api/admin/words/import-excel", { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) {
+        toast.err(data.error ?? "导入失败");
+        return;
+      }
+      toast.ok(`已导入 ${data.imported} 条词条`);
+      setPendingImportFile(null);
+      setSelectedIds(new Set());
+      // 导入可能删除了当前选中的分类，刷新后校正选中项
+      const [, categoriesResponse] = await Promise.all([refreshWords(), fetch("/api/admin/categories")]);
+      const freshArchives = await categoriesResponse.json();
+      if (categoriesResponse.ok && freshArchives.archives) {
+        setArchives(freshArchives.archives);
+        ensureActiveValid(freshArchives.archives);
+      }
+    } catch {
+      toast.err("网络异常，导入未完成");
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
-    <div className="mt-8 grid min-w-0 gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="mt-6 grid min-w-0 gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
       {/* ===== 左：题库结构 ===== */}
-      <Panel className="self-start">
-        <h2 className="flex items-center gap-2 text-xl font-bold">
-          <FolderOpen size={20} className="text-brass" />
-          题库结构
-        </h2>
-
-        {/* 新建 */}
-        <div className="mt-4 space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3">
-          {isTopAdmin ? (
-            <div className="flex gap-2">
-              <Input
-                value={newArchiveName}
-                onChange={(event) => setNewArchiveName(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && createArchive()}
-                placeholder="新建一级仓库（如 三界宙）"
-              />
-              <Button className="h-11 shrink-0 px-3" onClick={createArchive} disabled={!newArchiveName.trim()}>
-                <Plus size={16} />
-              </Button>
-            </div>
-          ) : (
-            <p className="text-xs text-white/40">一级仓库由顶级管理员维护，你可管理其下的二级分类与词条。</p>
-          )}
-          <div className="flex gap-2">
-            <select
-              value={newCategoryArchiveId}
-              onChange={(event) => setNewCategoryArchiveId(event.target.value)}
-              className="h-11 w-28 shrink-0 rounded-md border border-white/12 bg-black/25 px-2 text-sm"
-            >
-              {archives.map((archive) => (
-                <option key={archive.id} value={archive.id}>
-                  {archive.name}
-                </option>
-              ))}
-            </select>
-            <Input
-              value={newCategoryName}
-              onChange={(event) => setNewCategoryName(event.target.value)}
-              onKeyDown={(event) => event.key === "Enter" && createCategory()}
-              placeholder="新建二级分类"
-            />
-            <Button className="h-11 shrink-0 px-3" onClick={createCategory} disabled={!newCategoryName.trim()}>
-              <Plus size={16} />
-            </Button>
-          </div>
-        </div>
-
-        {/* 树 */}
-        <div className="nice-scroll mt-4 max-h-[60vh] space-y-3 overflow-auto pr-1">
-          {archives.map((archive) => (
-            <div key={archive.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
-              <div className="mb-1 flex items-center gap-1">
-                {isTopAdmin ? (
-                  <input
-                    value={archive.name}
-                    onChange={(event) =>
-                      setArchives((current) => current.map((item) => (item.id === archive.id ? { ...item, name: event.target.value } : item)))
-                    }
-                    onBlur={(event) => event.target.value.trim() && renameArchive(archive.id, event.target.value.trim())}
-                    className="h-9 min-w-0 flex-1 rounded bg-transparent px-2 text-sm font-bold text-brass outline-none focus:bg-black/25"
-                  />
-                ) : (
-                  <span className="h-9 min-w-0 flex-1 truncate px-2 py-1.5 text-sm font-bold text-brass">{archive.name}</span>
-                )}
-                {isTopAdmin ? (
-                  <button
-                    type="button"
-                    onClick={() => askDeleteArchive(archive)}
-                    title="删除仓库"
-                    className="shrink-0 rounded p-1.5 text-white/35 transition hover:bg-ember/15 hover:text-ember"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                ) : null}
-              </div>
-
-              {archive.categories.length === 0 ? (
-                <p className="px-2 py-1 text-xs text-white/30">暂无分类</p>
-              ) : null}
-
-              {archive.categories.map((category) => {
-                const active = activeCategory?.id === category.id;
-                return (
-                  <div
-                    key={category.id}
-                    className={cn(
-                      "group flex items-center gap-1 rounded px-1.5 py-1.5 transition",
-                      active ? "bg-storm/20" : "hover:bg-white/[0.06]"
-                    )}
-                  >
-                    <button type="button" onClick={() => setActiveCategoryId(category.id)} className="shrink-0 text-white/55">
-                      <FileText size={15} />
-                    </button>
-                    <input
-                      value={category.name}
-                      onChange={(event) =>
-                        setArchives((current) =>
-                          current.map((item) =>
-                            item.id === archive.id
-                              ? { ...item, categories: item.categories.map((inner) => (inner.id === category.id ? { ...inner, name: event.target.value } : inner)) }
-                              : item
-                          )
-                        )
-                      }
-                      onFocus={() => setActiveCategoryId(category.id)}
-                      onBlur={(event) => event.target.value.trim() && renameCategory(category.id, event.target.value.trim())}
-                      className="min-w-0 flex-1 rounded bg-transparent px-1 text-sm outline-none focus:bg-black/25"
-                    />
-                    <span className="shrink-0 rounded bg-white/5 px-1.5 text-xs text-white/45">{category.count}</span>
-                    <button
-                      type="button"
-                      onClick={() => askDeleteCategory(archive.name, category)}
-                      title="删除分类"
-                      className="shrink-0 rounded p-1 text-white/30 opacity-0 transition group-hover:opacity-100 hover:bg-ember/15 hover:text-ember"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </Panel>
+      <ArchiveTree
+        archives={archives}
+        isTopAdmin={isTopAdmin}
+        activeCategoryId={activeCategory?.id ?? ""}
+        onSelectCategory={(id) => {
+          setActiveCategoryId(id);
+          setQuery("");
+        }}
+        onCreateArchive={createArchive}
+        onRenameArchive={renameArchive}
+        onDeleteArchive={askDeleteArchive}
+        onCreateCategory={createCategory}
+        onRenameCategory={renameCategory}
+        onDeleteCategory={askDeleteCategory}
+        onLocalRename={setArchives}
+      />
 
       {/* ===== 右：词条 ===== */}
       <Panel className="min-w-0 self-start">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <h2 className="truncate text-xl font-bold">
-              {activeCategory ? `${activeCategory.archiveName} / ${activeCategory.name}` : "请选择分类"}
+            <h2 className="truncate text-base font-bold">
+              {globalSearch
+                ? `全局搜索：命中 ${filtered.length} 条`
+                : activeCategory
+                  ? `${activeCategory.archiveName} / ${activeCategory.name}`
+                  : "请选择分类"}
             </h2>
             <p className="mt-1 text-sm text-white/45">
-              {activeCategory ? `共 ${activeCategory.count} 条 · 改动立即影响下一局抽词` : "在左侧选择一个二级分类后管理词条"}
+              {globalSearch
+                ? "正在跨全部仓库搜索，点击词条的分类标签可跳转定位"
+                : activeCategory
+                  ? `共 ${activeCategory.count} 条 · 改动立即影响下一局抽词`
+                  : "在左侧选择一个二级分类后管理词条"}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -422,18 +468,10 @@ export function WordsAdmin({
               <Download size={17} />
               导出
             </Button>
-            <Button type="button" onClick={() => fileInputRef.current?.click()}>
-              <Upload size={17} />
+            <Button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+              {importing ? <Spinner size={17} /> : <Upload size={17} />}
               导入
             </Button>
-            <button
-              type="button"
-              onClick={() => setImportOpen((v) => !v)}
-              className="rounded-md border border-white/12 px-2 text-xs text-white/55 hover:bg-white/5"
-              title="导入设置"
-            >
-              <ChevronDown size={16} className={cn("transition", importOpen ? "" : "-rotate-90")} />
-            </button>
             <input
               ref={fileInputRef}
               type="file"
@@ -441,39 +479,12 @@ export function WordsAdmin({
               className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0];
-                if (file) importExcel(file);
+                if (file) setPendingImportFile(file);
                 event.target.value = "";
               }}
             />
           </div>
         </div>
-
-        {/* 导入设置（折叠） */}
-        {importOpen ? (
-          <div className="mt-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
-            <p className="text-sm font-semibold">Excel 导入替换范围</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {archives.map((archive) => {
-                const checked = importArchiveNames.includes(archive.name);
-                return (
-                  <label key={archive.id} className="flex items-center gap-2 rounded border border-white/10 px-2 py-1 text-xs text-white/70">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        setImportArchiveNames((current) =>
-                          checked ? current.filter((name) => name !== archive.name) : [...current, archive.name]
-                        )
-                      }
-                    />
-                    {archive.name}
-                  </label>
-                );
-              })}
-            </div>
-            <p className="mt-2 text-xs text-white/42">未勾选的现有档案不会被替换；Excel 里的新 Sheet 会自动创建。</p>
-          </div>
-        ) : null}
 
         {/* 新增词条 */}
         <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
@@ -491,39 +502,106 @@ export function WordsAdmin({
             placeholder="英文 / 备注（可选）"
             disabled={!activeCategory}
           />
-          <Button onClick={createWord} disabled={!activeCategory || !newWordCn.trim()}>
-            <Save size={18} />
+          <Button onClick={createWord} disabled={!activeCategory || !newWordCn.trim() || creating}>
+            {creating ? <Spinner size={18} /> : <Save size={18} />}
             新增词条
           </Button>
         </div>
 
-        {message ? (
-          <p className={cn("mt-4 text-sm", message.tone === "ok" ? "text-storm" : "text-ember")}>{message.text}</p>
-        ) : null}
-
         {/* 搜索 */}
         <div className="mt-5 flex items-center gap-2">
           <Search size={18} className="shrink-0 text-white/45" />
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="在当前分类内搜索中文 / 英文" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="全局搜索中文 / 英文（留空则浏览当前分类）"
+          />
+          {globalSearch ? (
+            <Button type="button" className="shrink-0 px-3" onClick={() => setQuery("")} aria-label="清除搜索">
+              <X size={16} />
+            </Button>
+          ) : null}
         </div>
+
+        {/* 批量操作条 */}
+        {selectedIds.size > 0 ? (
+          <div className="sticky top-0 z-20 mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-storm/30 bg-[#0d1b24]/95 px-3 py-2 backdrop-blur">
+            <span className="text-sm font-semibold text-storm">已选 {selectedIds.size} 条</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button size="sm" onClick={() => bulkPatch({ enabled: true })} disabled={bulkPending}>
+                启用
+              </Button>
+              <Button size="sm" onClick={() => bulkPatch({ enabled: false })} disabled={bulkPending}>
+                停用
+              </Button>
+              <select
+                value={bulkMoveTarget}
+                onChange={(event) => {
+                  const target = event.target.value;
+                  setBulkMoveTarget(target);
+                  if (target) void bulkPatch({ wordCategoryId: target });
+                }}
+                disabled={bulkPending}
+                className="h-8 rounded-md border border-white/12 bg-black/25 px-2 text-xs"
+                aria-label="移动到分类"
+              >
+                <option value="">移动到…</option>
+                {archives.map((archive) => (
+                  <optgroup key={archive.id} label={archive.name}>
+                    {archive.categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <Button size="sm" variant="danger" onClick={askBulkDelete} disabled={bulkPending}>
+                <Trash2 size={13} />
+                删除
+              </Button>
+              {bulkPending ? <Spinner size={15} className="text-storm" /> : null}
+            </div>
+            <button
+              className="ml-auto rounded p-1 text-white/40 transition hover:bg-white/10 hover:text-white"
+              onClick={() => setSelectedIds(new Set())}
+              aria-label="取消选择"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        ) : null}
 
         {/* 词条表 */}
         <div className="nice-scroll mt-4 max-h-[64vh] overflow-auto rounded-lg border border-white/10">
           <table className="w-full min-w-[760px] border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 bg-panel text-white/62">
               <tr>
-                <th className="w-20 p-3">状态</th>
-                <th className="p-3">中文</th>
-                <th className="p-3">英文 / 备注</th>
-                <th className="w-44 p-3">分类</th>
-                <th className="w-16 p-3 text-center">操作</th>
+                <th className="w-10 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleSelectAll}
+                    disabled={filtered.length === 0}
+                    aria-label="全选当前列表"
+                  />
+                </th>
+                <th className="w-20 px-3 py-2.5">状态</th>
+                <th className="px-3 py-2.5">中文</th>
+                <th className="px-3 py-2.5">英文 / 备注</th>
+                <th className="w-44 px-3 py-2.5">分类</th>
+                <th className="w-16 px-3 py-2.5 text-center">操作</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-sm text-white/35">
-                    {activeCategory ? "该分类暂无词条，使用上方表单新增。" : "请先在左侧选择分类。"}
+                  <td colSpan={6} className="p-8 text-center text-sm text-white/35">
+                    {globalSearch
+                      ? "没有匹配的词条。"
+                      : activeCategory
+                        ? "该分类暂无词条，使用上方表单新增。"
+                        : "请先在左侧选择分类。"}
                   </td>
                 </tr>
               ) : null}
@@ -531,9 +609,17 @@ export function WordsAdmin({
                 const duplicate = duplicateKeys.has(`${word.textCn}\u0000${word.textEnOrNote}`);
                 return (
                   <tr key={word.id} className="border-t border-white/8 align-top hover:bg-white/[0.02]">
-                    <td className="p-3">
+                    <td className="px-3 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(word.id)}
+                        onChange={() => toggleSelect(word.id)}
+                        aria-label={`选择「${word.textCn}」`}
+                      />
+                    </td>
+                    <td className="px-3 py-2.5">
                       <button
-                        onClick={() => patchWord(word.id, { enabled: !word.enabled })}
+                        onClick={() => patchWord(word.id, { enabled: !word.enabled }, { silent: true })}
                         className={cn(
                           "rounded-full px-2.5 py-1 text-xs font-semibold transition",
                           word.enabled ? "bg-storm/20 text-storm" : "bg-white/5 text-white/40"
@@ -542,7 +628,7 @@ export function WordsAdmin({
                         {word.enabled ? "启用" : "停用"}
                       </button>
                     </td>
-                    <td className="p-3">
+                    <td className="px-3 py-2.5">
                       <Input
                         defaultValue={word.textCn}
                         onBlur={(event) => {
@@ -550,34 +636,53 @@ export function WordsAdmin({
                             patchWord(word.id, { textCn: event.target.value.trim() });
                         }}
                       />
-                      {duplicate ? <span className="mt-1 inline-block rounded bg-brass/20 px-2 py-0.5 text-xs text-brass">重复</span> : null}
+                      {duplicate ? (
+                        <Badge tone="brass" className="mt-1">
+                          重复
+                        </Badge>
+                      ) : null}
                     </td>
-                    <td className="p-3">
+                    <td className="px-3 py-2.5">
                       <Input
                         defaultValue={word.textEnOrNote}
                         onBlur={(event) => {
-                          if (event.target.value !== word.textEnOrNote) patchWord(word.id, { textEnOrNote: event.target.value.trim() });
+                          if (event.target.value !== word.textEnOrNote)
+                            patchWord(word.id, { textEnOrNote: event.target.value.trim() });
                         }}
                       />
                     </td>
-                    <td className="p-3">
-                      <select
-                        value={word.wordCategoryId}
-                        onChange={(event) => patchWord(word.id, { wordCategoryId: event.target.value })}
-                        className="w-full rounded-md border border-white/12 bg-black/25 px-2 py-2"
-                      >
-                        {archives.map((archive) => (
-                          <optgroup key={archive.id} label={archive.name}>
-                            {archive.categories.map((category) => (
-                              <option key={category.id} value={category.id}>
-                                {category.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
+                    <td className="px-3 py-2.5">
+                      {globalSearch ? (
+                        <button
+                          onClick={() => {
+                            setActiveCategoryId(word.wordCategoryId);
+                            setQuery("");
+                          }}
+                          className="rounded-md border border-white/12 bg-white/[0.04] px-2 py-1.5 text-xs text-white/70 transition hover:bg-storm/15 hover:text-storm"
+                          title="跳转到该分类"
+                        >
+                          {word.category.archive.name} / {word.category.name}
+                        </button>
+                      ) : (
+                        <select
+                          value={word.wordCategoryId}
+                          onChange={(event) => patchWord(word.id, { wordCategoryId: event.target.value })}
+                          className="w-full rounded-md border border-white/12 bg-black/25 px-2 py-2"
+                          aria-label="移动到分类"
+                        >
+                          {archives.map((archive) => (
+                            <optgroup key={archive.id} label={archive.name}>
+                              {archive.categories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                  {category.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+                      )}
                     </td>
-                    <td className="p-3 text-center">
+                    <td className="px-3 py-2.5 text-center">
                       <button
                         onClick={() => askDeleteWord(word)}
                         title="删除词条"
@@ -594,30 +699,37 @@ export function WordsAdmin({
         </div>
       </Panel>
 
+      {/* 导入确认 */}
+      <ImportDialog
+        file={pendingImportFile}
+        archives={archives}
+        pending={importing}
+        onConfirm={importExcel}
+        onCancel={() => setPendingImportFile(null)}
+      />
+
       {/* 删除确认 */}
-      {confirm ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-xl border border-ember/30 bg-panel p-6 shadow-2xl">
-            <h3 className="flex items-center gap-2 text-lg font-black text-ember">
-              <Trash2 size={18} /> {confirm.title}
-            </h3>
-            <p className="mt-2 text-sm text-white/60">{confirm.body}</p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button onClick={() => setConfirm(null)}>取消</Button>
-              <Button
-                className="bg-ember/30 text-ember"
-                onClick={async () => {
-                  const action = confirm.run;
-                  setConfirm(null);
-                  await action();
-                }}
-              >
-                {confirm.confirmLabel}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.title ?? ""}
+        body={confirm?.body}
+        confirmLabel={confirm?.confirmLabel ?? "确认"}
+        tone="danger"
+        pending={confirmPending}
+        onCancel={() => {
+          if (!confirmPending) setConfirm(null);
+        }}
+        onConfirm={async () => {
+          if (!confirm) return;
+          setConfirmPending(true);
+          try {
+            await confirm.run();
+          } finally {
+            setConfirmPending(false);
+            setConfirm(null);
+          }
+        }}
+      />
     </div>
   );
 }
