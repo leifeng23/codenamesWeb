@@ -10,15 +10,17 @@ export function CategoryTree({
   tree,
   selected,
   onChange,
-  readonly = false
+  readonly = false,
+  defaultCollapsed = false
 }: {
   tree: WordArchiveNode[];
   selected: string[];
   onChange: (next: string[]) => void;
   readonly?: boolean;
+  defaultCollapsed?: boolean;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(tree.map((archive) => [archive.id, true]))
+    Object.fromEntries(tree.map((archive) => [archive.id, !defaultCollapsed]))
   );
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const allCategoryIds = tree.flatMap((archive) => archive.categories.map((category) => category.id));
@@ -50,32 +52,50 @@ export function CategoryTree({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/50">
         <span>
-          已选 {selected.length}/{allCategoryIds.length} 个文件
+          已选 {selected.length}/{allCategoryIds.length} 个分类 · {total} 条可用词
         </span>
-        <span>{total} 条可用词</span>
+        {!readonly ? (
+          <div className="flex gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onChange(allCategoryIds)}
+              disabled={selected.length === allCategoryIds.length}
+            >
+              全选
+            </Button>
+            <Button type="button" size="sm" onClick={() => onChange([])} disabled={selected.length === 0}>
+              清空
+            </Button>
+          </div>
+        ) : null}
       </div>
       <div className="nice-scroll max-h-[48vh] space-y-2 overflow-auto pr-1">
         {tree.map((archive) => {
-          const archiveOpen = open[archive.id] ?? true;
+          const archiveOpen = open[archive.id] ?? !defaultCollapsed;
           const categoryIds = archive.categories.map((category) => category.id);
           const checkedCount = categoryIds.filter((categoryId) => selectedSet.has(categoryId)).length;
           const allChecked = categoryIds.length > 0 && checkedCount === categoryIds.length;
           return (
-            <div key={archive.id} className="rounded-md border border-white/10 bg-white/[0.035]">
+            <div key={archive.id} className="rounded-md border border-white/10 bg-white/[0.04]">
               <div className="flex items-center gap-2 p-2">
                 <button
                   type="button"
                   className="grid size-8 shrink-0 place-items-center rounded hover:bg-white/10"
                   onClick={() => setOpen((current) => ({ ...current, [archive.id]: !archiveOpen }))}
+                  aria-label={archiveOpen ? "折叠" : "展开"}
                 >
                   <ChevronDown size={16} className={cn("transition", archiveOpen ? "" : "-rotate-90")} />
                 </button>
                 {archiveOpen ? <FolderOpen size={18} className="shrink-0 text-brass" /> : <Folder size={18} className="shrink-0 text-brass" />}
                 <span className="min-w-0 flex-1 truncate font-semibold">{archive.name}</span>
+                {checkedCount > 0 && !archiveOpen ? (
+                  <span className="shrink-0 text-xs text-storm/80">{checkedCount} 已选</span>
+                ) : null}
                 {!readonly ? (
                   <Button
                     type="button"
-                    className="shrink-0 px-2 py-1 text-xs"
+                    size="sm"
                     onClick={() => setArchive(categoryIds, !allChecked)}
                     disabled={categoryIds.length === 0}
                   >
@@ -88,7 +108,7 @@ export function CategoryTree({
                   {archive.categories.map((category) => (
                     <label
                       key={category.id}
-                      className="flex cursor-pointer items-center gap-3 rounded px-2 py-2 text-sm hover:bg-white/[0.05]"
+                      className="flex cursor-pointer items-center gap-3 rounded px-2 py-2 text-sm hover:bg-white/[0.07]"
                     >
                       <input
                         type="checkbox"

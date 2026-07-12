@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { HomeActions } from "../components/home-actions";
+import { LogoutButton } from "../components/logout-button";
 import { Starfield } from "../components/starfield";
+import { Badge } from "../components/ui/badge";
 import { Panel } from "../components/ui/panel";
 import { currentUser } from "../lib/auth";
 import { buildCategoryTree } from "../lib/game-state";
@@ -14,39 +16,33 @@ export default async function HomePage() {
   return (
     <main className="min-h-screen px-4 py-8">
       <Starfield />
-      <div className="mx-auto flex max-w-6xl items-center justify-between">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.32em] text-storm/70">Codenames Fan Edition</p>
-          <h1 className="mt-2 text-4xl font-black">Codenames同人在线版</h1>
+          <h1 className="mt-2 text-3xl font-black md:text-4xl">Codenames同人在线版</h1>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="brass">{user.username}</Badge>
           {user.role === "ADMIN" || user.role === "WORD_EDITOR" ? (
-            <Link className="rounded-md border border-white/15 px-4 py-2 text-sm text-white/80 hover:bg-white/10" href="/admin/words">
-              题库后台
+            <Link className="rounded-md border border-white/15 px-4 py-2 text-sm text-white/80 hover:bg-white/10" href="/admin">
+              管理后台
             </Link>
           ) : null}
-          {user.role === "ADMIN" ? (
-            <Link className="rounded-md border border-white/15 px-4 py-2 text-sm text-white/80 hover:bg-white/10" href="/admin/users">
-              用户权限
-            </Link>
-          ) : null}
+          <LogoutButton />
         </div>
       </div>
-      <div className="mx-auto mt-12 grid max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="mx-auto mt-10 grid max-w-6xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="scanlines relative min-h-[480px] overflow-hidden rounded-lg border border-white/10 bg-black/20 p-8">
           <div className="max-w-xl">
             <p className="text-sm text-brass">行动员：{user.username}</p>
-            <h2 className="mt-5 text-5xl font-black leading-tight">创建房间，抽取 25 张密令牌。</h2>
+            <h2 className="mt-5 text-4xl font-black leading-tight">创建房间，抽取 25 张密令牌。</h2>
             <p className="mt-5 max-w-lg text-white/62">
               房间码邀请朋友加入，间谍权限由房主控制。所有翻牌、阵营和事件都会被保存，方便中途恢复和回看。
             </p>
           </div>
         </section>
-        <Panel className="self-start">
-          <h2 className="text-xl font-bold">房间</h2>
-          <div className="mt-6">
-            <HomeActions categoryTree={categoryTree} />
-          </div>
+        <Panel className="self-start" title="房间">
+          <HomeActions categoryTree={categoryTree} />
         </Panel>
       </div>
     </main>

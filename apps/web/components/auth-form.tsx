@@ -31,14 +31,21 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   return (
     <form action={submit} className="space-y-4">
       {mode === "login" ? (
-        <Input name="login" placeholder="邮箱或用户名" required />
+        <Input name="login" placeholder="邮箱或用户名" autoComplete="username" required />
       ) : (
         <>
-          <Input name="email" type="email" placeholder="邮箱" required />
-          <Input name="username" placeholder="用户名" required minLength={2} maxLength={24} />
+          <Input name="email" type="email" placeholder="邮箱" autoComplete="email" required />
+          <Input name="username" placeholder="用户名" autoComplete="username" required minLength={2} maxLength={24} />
         </>
       )}
-      <Input name="password" type="password" placeholder="密码" required minLength={mode === "register" ? 8 : undefined} />
+      <Input
+        name="password"
+        type="password"
+        placeholder="密码"
+        autoComplete={mode === "register" ? "new-password" : "current-password"}
+        required
+        minLength={mode === "register" ? 8 : undefined}
+      />
       {error ? <p className="text-sm text-ember">{error}</p> : null}
       <Button className="w-full bg-storm/18" disabled={loading}>
         {mode === "login" ? <LogIn size={18} /> : <UserPlus size={18} />}
